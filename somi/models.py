@@ -5,17 +5,35 @@ from IPython import embed
 
 class LinearModel(torch.nn.Module):
     def __init__(self, size):
-        """
-        In the constructor we instantiate four parameters and assign them as
-        member parameters.
-        """
         super().__init__()
+        self.size = size
         self.theta = torch.nn.Parameter(torch.randn((size, size), dtype=torch.float64))
 
     def forward(self, x):
-        """
-        In the forward function we accept a Tensor of input data and we must return
-        a Tensor of output data. We can use Modules defined in the constructor as
-        well as arbitrary operators on Tensors.
-        """
         return self.theta @ x
+
+
+class ScalingLinearModel(torch.nn.Module):
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+        self.theta = torch.nn.Parameter(torch.randn((size, size), dtype=torch.float64))
+
+    def forward(self, x):
+        # y = x.clone()
+        # for batch_idx in range(x.shape[0]):
+        #     for i in range(self.size):
+        #         for j in range(self.size):
+        #             y[batch_idx][i][j] = self.theta[i][j] * x[batch_idx][i][j]
+                
+        return torch.mul(self.theta, x)
+
+
+class DoubleLinearModel(torch.nn.Module):
+    def __init__(self, size):
+        super().__init__()
+        self.theta_1 = torch.nn.Parameter(torch.randn((size, size), dtype=torch.float64))
+        self.theta_2 = torch.nn.Parameter(torch.randn((size, size), dtype=torch.float64))
+
+    def forward(self, x):
+        return self.theta_2 @ self.theta_1 @ x

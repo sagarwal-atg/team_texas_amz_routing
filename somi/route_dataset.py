@@ -21,9 +21,9 @@ class RouteDataset(Dataset):
         if datasize < 0:
             datasize = len(route_ids)
 
-        self.x = np.zeros((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN))
+        self.orig_dist = np.zeros((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN))
         ## @TODO fix max cost
-        self.y = float(MAX_COST) * np.ones((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN))
+        self.y = np.ones((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN))
 
         self.stop_dict = dict()
         self.data_route_ids = []
@@ -45,11 +45,15 @@ class RouteDataset(Dataset):
                     if self.check_neighbor(stop_sequence[i], stop_sequence[j], len(stop_sequence)):
                         actual_utility[temp_dict[i]][temp_dict[j]] = 1
                 
-            self.y[route_number] = self.y[route_number] - float(MAX_COST) * actual_utility
+            self.y[route_number] = actual_utility
 
-            self.x[route_number] = distances
+            self.orig_dist[route_number] = distances
             self.stop_dict[route_ids[route_number]] = stop_sequence 
             self.data_route_ids.append(route_ids[route_number])
+        
+        norm = np.linalg.norm(self.orig_dist)
+        self.x = self.orig_dist / norm
+        self.y = np.max(self.x) * ( np.ones((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN)) - self.y)
     
     def check_neighbor(self, u, v, seq_len):
         is_neighbor = False
@@ -65,5 +69,6 @@ class RouteDataset(Dataset):
     def __getitem__(self, idx):
         x_tensor = torch.from_numpy(self.x[idx])
         y_tensor = torch.from_numpy(self.y[idx])
+        orig_dist_matrix = self.orig_dist[idx]
         id = self.data_route_ids[idx]
-        return (x_tensor, y_tensor, id)
+        return (x_tensor, y_tensor, id, orig_dist_matrix)

@@ -1,5 +1,6 @@
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
+from IPython import embed
 
 
 def compute_tsp_solution(distance_matrix, stops_dict):
@@ -63,7 +64,7 @@ def compute_tsp_solution(distance_matrix, stops_dict):
     solution_collector = get_tsp_solution(manager, routing, solution)
 
     tsp = []
-    for i in solution_collector:
-        tsp.append(list(stops_dict.keys())[list(stops_dict.values()).index(i)])
+    for i in solution_collector[0]:
+        tsp.append(list(stops_dict.keys())[i])
     
     return tsp
