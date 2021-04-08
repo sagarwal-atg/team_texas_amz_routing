@@ -1,10 +1,2 @@
 
 **/node_modules
-
-# Tomtom (amp/route) resources
-tomtom/assets
-tomtom/js
-tomtom/img
-tomtom/sdk
-tomtom/css
-tomtom/elements.css
