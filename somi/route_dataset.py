@@ -22,7 +22,6 @@ class RouteDataset(Dataset):
             datasize = len(route_ids)
 
         self.orig_dist = np.zeros((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN))
-        ## @TODO fix max cost
         self.y = np.ones((datasize, MAX_ROUTE_LEN, MAX_ROUTE_LEN))
 
         self.stop_dict = dict()

@@ -14,7 +14,7 @@ from IPython import embed
 
 
 BATCHSIZE = 4
-DATASIZE = 20
+DATASIZE = 1000
 NUM_EPOCHS = 1000
 MAX_ROUTE_LEN = 250
 MAX_COST = 5000.0
@@ -35,7 +35,7 @@ test_dataloader = DataLoader(route_dataset, batch_size=1, shuffle=True)
 print('Loaded Data')
 
 
-linear_model = ScalingLinearModel(size=MAX_ROUTE_LEN)
+linear_model = DoubleLinearModel(size=MAX_ROUTE_LEN)
 optimizer = optim.SGD(linear_model.parameters(), lr=0.1, momentum=0.9)
 
 writer = SummaryWriter(logdir=base_path + 'runs/{}_{}_Model_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), sys.argv[1], DATASIZE))

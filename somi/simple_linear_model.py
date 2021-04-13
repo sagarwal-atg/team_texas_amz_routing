@@ -4,6 +4,7 @@ import numpy as np
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
+from IPython import embed
 
 with open('/Users/Somi/Desktop/Projects/data/model_build_inputs/route_data.json') as f:
     route_data = json.load(f)
@@ -17,6 +18,7 @@ with open('/Users/Somi/Desktop/Projects/data/model_build_inputs/travel_times.jso
 route_ids = list(route_data.keys())
 
 route_number = 400
+embed()
 
 temp = {k: v for k, v in sorted(data_actual[route_ids[route_number]]['actual'].items(), key=lambda item: item[1])}
 coordinates = []
