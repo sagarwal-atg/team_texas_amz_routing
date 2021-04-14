@@ -1,6 +1,7 @@
 import sys
 import torch
 import datetime
+import copy
 from torch.utils.data import DataLoader
 
 from route_dataset import RouteDataset
@@ -48,9 +49,9 @@ def longest_common_substring(s1, s2):
 
 def test_best_lcs(seq, seq_to_reverse):
     lcs = longest_common_substring(seq, seq_to_reverse)
-    reverse_lcs = longest_common_substring(seq, list(reversed(seq_to_reverse)))
-    if len(lcs) < len(reverse_lcs):
-        lcs = reverse_lcs
+    # reverse_lcs = longest_common_substring(seq, list(reversed(seq_to_reverse)))
+    # if len(lcs) < len(reverse_lcs):
+    #     lcs = reverse_lcs
     return lcs
 
 
@@ -62,8 +63,9 @@ def compute_tsp_and_edit_distance(distance_matrix, gt_stop_seq):
     assert tsp_seq is not None
 
     sorted_gt_stop_seq = [k for k, v in sorted(gt_stop_seq.items(), key=lambda item: item[1])]
-    edit_dist = min(editdistance.eval(tsp_seq, sorted_gt_stop_seq),
-                    editdistance.eval(tsp_seq, list(reversed(sorted_gt_stop_seq))))
+    # edit_dist = min(editdistance.eval(tsp_seq, sorted_gt_stop_seq),
+    #                 editdistance.eval(tsp_seq, list(reversed(sorted_gt_stop_seq))))
+    edit_dist = editdistance.eval(tsp_seq, sorted_gt_stop_seq)
     return tsp_seq, sorted_gt_stop_seq, edit_dist
 
 
@@ -80,16 +82,16 @@ for i, data in enumerate(test_dataloader):
     input, output, stop_key, distance_matrix = data
     gt_stop_seq = test_dataloader.dataset.stop_dict[stop_key[0]]
 
-    tsp_seq, sorted_gt_stop_seq, gt_edit_dist = compute_tsp_and_edit_distance(distance_matrix, gt_stop_seq)
+    tsp_seq, sorted_gt_stop_seq, gt_edit_dist = compute_tsp_and_edit_distance(distance_matrix, copy.deepcopy(gt_stop_seq))
     orig_edit_distances.append(gt_edit_dist)
     orig_lcs.append(test_best_lcs(sorted_gt_stop_seq, tsp_seq))
 
     distance_matrix = model(input)
-    model_tsp_seq, _, model_edit_dist = compute_tsp_and_edit_distance(distance_matrix, gt_stop_seq)
+    model_tsp_seq, _, model_edit_dist = compute_tsp_and_edit_distance(distance_matrix, copy.deepcopy(gt_stop_seq))
     model_edit_distances.append(model_edit_dist)
     model_lcs.append(test_best_lcs(sorted_gt_stop_seq, model_tsp_seq))
 
-    label_tsp_seq, _, label_edit_dist = compute_tsp_and_edit_distance(output, gt_stop_seq)
+    label_tsp_seq, _, label_edit_dist = compute_tsp_and_edit_distance(output, copy.deepcopy(gt_stop_seq))
     label_edit_distances.append(label_edit_dist)
     label_lcs.append(test_best_lcs(sorted_gt_stop_seq, model_tsp_seq))
 

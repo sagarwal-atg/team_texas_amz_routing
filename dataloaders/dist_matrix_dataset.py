@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import Dataset
 
 
-class RouteDataset(Dataset):
+class DistMatrixDataset(Dataset):
     def __init__(self, route_filepath, actual_filepath, travel_times_filepath, MAX_ROUTE_LEN, datasize=-1, MAX_COST=5000.0):
         with open(route_filepath) as f:
             route_data = json.load(f)

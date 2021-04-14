@@ -1,4 +1,5 @@
-from ortools.constraint_solver import or_cs
+from ortools.constraint_solver import routing_enums_pb2
+from ortools.constraint_solver import pywrapcp
 from IPython import embed
 
 
@@ -34,11 +35,11 @@ def compute_tsp_solution(distance_matrix, stops_dict):
     tsp_data = create_data_model()
 
     # Create the routing index manager.
-    manager = or_cs.RoutingIndexManager(len(tsp_data['distance_matrix']),
+    manager = pywrapcp.RoutingIndexManager(len(tsp_data['distance_matrix']),
                                            tsp_data['num_vehicles'], tsp_data['depot'])
 
     # Create Routing Model.
-    routing = or_cs.RoutingModel(manager)
+    routing = pywrapcp.RoutingModel(manager)
 
 
     def distance_callback(from_index, to_index):
@@ -54,8 +55,9 @@ def compute_tsp_solution(distance_matrix, stops_dict):
     routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
     # Setting first solution heuristic.
-    search_parameters = or_cs.DefaultRoutingSearchParameters()
-    search_parameters.first_solution_strategy = (or_cs.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
 
     # Solve the problem.
     solution = routing.SolveWithParameters(search_parameters)

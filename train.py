@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.optim as optim
 
-from route_dataset import RouteDataset
+from dist_matrix_dataset import DistMatrixDataset
 from models import LinearModel, DoubleLinearModel, ScalingLinearModel
 from tsp import compute_tsp_solution
 from tensorboardX import SummaryWriter
@@ -29,7 +29,7 @@ if not os.path.exists(base_path + "trained_models/" + sys.argv[1]):
     os.makedirs(base_path + "trained_models/" + sys.argv[1])
 
 
-route_dataset = RouteDataset(route_filepath, actual_filepath, travel_times_filepath, MAX_ROUTE_LEN, datasize=DATASIZE, MAX_COST=MAX_COST)
+route_dataset = DistMatrixDataset(route_filepath, actual_filepath, travel_times_filepath, MAX_ROUTE_LEN, datasize=DATASIZE, MAX_COST=MAX_COST)
 train_dataloader = DataLoader(route_dataset, batch_size=BATCHSIZE, shuffle=True)
 test_dataloader = DataLoader(route_dataset, batch_size=1, shuffle=True)
 print('Loaded Data')
