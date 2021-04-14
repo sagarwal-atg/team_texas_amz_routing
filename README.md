@@ -1,11 +1,11 @@
 # team_texas_amz_routing
 
 ## Recommended file structure
-> amazon (main folder):
->      -- data (all JSON files)
->      -- runs (tensorboard)
->      -- trained_models (saving trained model weights)
->      -- team_texas_amz_routing (this GitHub repo)
+> amazon (main folder):  \
+>      -- data (all JSON files) \
+>      -- runs (tensorboard) \
+>      -- trained_models (saving trained model weights) \
+>      -- team_texas_amz_routing (this GitHub repo) \
 
 
 ## Setting up the environment
