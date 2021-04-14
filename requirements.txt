@@ -1,0 +1,13 @@
+###### Requirements without Version Specifiers ######`
+argparse
+easydict
+folium
+python-ipython
+pyyaml
+sklearn
+torch
+torchvision
+tensorboardX
+
+
+###### Requirements with Version Specifiers ######`

@@ -1,0 +1,22 @@
+# Change experiment name
+name: 'linear_irl'
+
+# Change base path
+base_path: '/Users/Somi/Desktop/Projects/amazon_challenge/'
+route_filepath: 'data/model_build_inputs/route_data.json'
+actual_filepath: 'data/model_build_inputs/actual_sequences.json'
+travel_times_filepath: 'data/model_build_inputs/travel_times.json'
+package_data_filepath: 'data/model_build_inputs/package_data.json'
+
+dataset:
+    link_features_size: 1
+    route_features_size: 3
+
+batchsize: 4
+datasize: 100
+num_train_epochs: 1000
+max_route_len: 210
+
+# Optimizer
+learning_rate: 0.001
+momentum: 0.9
