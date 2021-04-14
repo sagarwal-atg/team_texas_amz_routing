@@ -4,9 +4,10 @@ import datetime
 import copy
 from torch.utils.data import DataLoader
 
-from route_dataset import RouteDataset
-from models import LinearModel, DoubleLinearModel, ScalingLinearModel
-from tsp import compute_tsp_solution
+from dataloaders.irl_dataset import  IRLDataset
+from dataloaders.dist_matrix_dataset import DistMatrixDataset
+from models.models import LinearModel, DoubleLinearModel, ScalingLinearModel
+from tsp_solvers.tsp import compute_tsp_solution
 import editdistance
 
 from IPython import embed
@@ -22,7 +23,7 @@ route_filepath = base_path + 'data/model_build_inputs/route_data.json'
 actual_filepath = base_path + 'data/model_build_inputs/actual_sequences.json'
 travel_times_filepath = base_path + 'data/model_build_inputs/travel_times.json'
 
-route_dataset = RouteDataset(route_filepath, actual_filepath, travel_times_filepath, MAX_ROUTE_LEN, datasize=DATASIZE, MAX_COST=MAX_COST)
+route_dataset = DistMatrixDataset(route_filepath, actual_filepath, travel_times_filepath, MAX_ROUTE_LEN, datasize=DATASIZE, MAX_COST=MAX_COST)
 test_dataloader = DataLoader(route_dataset, batch_size=1, shuffle=False)
 print('Loaded Data')
 

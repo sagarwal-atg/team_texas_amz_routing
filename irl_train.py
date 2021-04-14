@@ -9,8 +9,8 @@ import torch
 from torch.utils.data import DataLoader
 import torch.optim as optim
 
-from irl_dataset import IRLDataset
-from models import IRLLinearModel
+from dataloaders.irl_dataset import IRLDataset
+from models.models import IRLLinearModel
 from tensorboardX import SummaryWriter
 from IPython import embed
 
