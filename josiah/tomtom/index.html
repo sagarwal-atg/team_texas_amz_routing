@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html class='use-all-space'>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta charset='UTF-8'>
+    <title>Maps SDK for Web - Waypoints Optimization</title>
+    <meta name='viewport'
+          content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'/>
+    <link rel='stylesheet' type='text/css' href='sdk/map.css'/>
+    <link rel='stylesheet' type='text/css' href='elements.css'>
+    <script type='text/javascript' src='js/form.js'></script>
+    <script src='sdk/tomtom.min.js'></script>
+    <style>
+
+    .checkbox-route-representation {
+        margin-right: 5px !important;
+        margin-left: 0px !important;
+        margin-top: 0px !important;
+        position: relative;
+        vertical-align: middle;
+        bottom: 1px;
+    }
+
+    .checkbox-route-representation-label {
+        font-weight: bold;
+        margin-top: 5px;
+    }
+
+    .select-label {
+        font-weight: bold;
+    }
+
+    .loader {
+        opacity: 0.75;
+        display: block;
+        background: white;
+        width: 50px;
+        height: 50px;
+        border-radius: 25%;
+    }
+
+    .loader:before {
+        margin: 30%;
+    }
+    </style>
+</head>
+<body class='use-all-space'>
+        <div id='loader' class='loader loader-center'></div>
+        <div id='map' class='use-all-space'></div>
+    <script>
+        // Define your product name and version
+        tomtom.setProductInfo('MapsWebSDKExamplesSelfhosted', '4.48.5-SNAPSHOT');
+        // Setting TomTom keys
+        tomtom.key('SCHRt5YAYMvWqLMfqM2ylYq47mGldS4P');
+        tomtom.routingKey('SCHRt5YAYMvWqLMfqM2ylYq47mGldS4P');
+        // Creating map
+        var map = tomtom.map('map', {
+            source: 'vector',
+            basePath: '/sdk'
+        });
+
+        map.zoomControl.setPosition('topright');
+
+        var checkbox, select, route, polyline;
+        var loader = document.getElementById('loader');
+        var computeBestOrder = false;
+        var routeRepresentationValue = 'polyline';
+        var markers = [];
+
+        var locations = [{"lat": 34.007369, "lon": -118.143927}, {"lat": 34.088467, "lon": -118.284521}, {"lat": 34.088709, "lon": -118.284839}, {"lat": 34.088717, "lon": -118.286484}, {"lat": 34.089727, "lon": -118.28553}, {"lat": 34.090901, "lon": -118.284257}, {"lat": 34.092285, "lon": -118.283236}, {"lat": 34.091721, "lon": -118.284539}, {"lat": 34.093458, "lon": -118.284798}, {"lat": 34.093177, "lon": -118.283405}, {"lat": 34.09289, "lon": -118.282396}, {"lat": 34.093152, "lon": -118.282542}, {"lat": 34.093868, "lon": -118.283305}, {"lat": 34.094506, "lon": -118.283993}, {"lat": 34.09581, "lon": -118.284534}, {"lat": 34.094262, "lon": -118.283726}, {"lat": 34.095431, "lon": -118.286601}, {"lat": 34.094347, "lon": -118.285564}, {"lat": 34.092186, "lon": -118.285547}, {"lat": 34.0915, "lon": -118.286608}, {"lat": 34.093126, "lon": -118.286591}, {"lat": 34.09346, "lon": -118.286891}, {"lat": 34.092428, "lon": -118.2878}, {"lat": 34.095705, "lon": -118.287525}, {"lat": 34.095641, "lon": -118.289226}, {"lat": 34.09451, "lon": -118.28895}, {"lat": 34.093119, "lon": -118.291761}, {"lat": 34.091648, "lon": -118.29175}, {"lat": 34.09039, "lon": -118.293879}, {"lat": 34.091351, "lon": -118.293884}, {"lat": 34.091408, "lon": -118.292792}, {"lat": 34.093294, "lon": -118.292799}, {"lat": 34.094216, "lon": -118.293212}, {"lat": 34.096132, "lon": -118.292869}, {"lat": 34.097287, "lon": -118.292869}, {"lat": 34.097468, "lon": -118.291886}, {"lat": 34.096991, "lon": -118.290254}, {"lat": 34.096991, "lon": -118.290254}, {"lat": 34.098157, "lon": -118.289765}, {"lat": 34.0954, "lon": -118.29115}, {"lat": 34.096583, "lon": -118.294127}, {"lat": 34.099091, "lon": -118.28993}, {"lat": 34.099634, "lon": -118.289397}, {"lat": 34.100562, "lon": -118.290796}, {"lat": 34.100716, "lon": -118.291027}, {"lat": 34.100619, "lon": -118.29239}, {"lat": 34.099557, "lon": -118.291764}, {"lat": 34.101587, "lon": -118.291125}, {"lat": 34.101797, "lon": -118.290697}, {"lat": 34.101474, "lon": -118.289609}, {"lat": 34.101063, "lon": -118.288518}, {"lat": 34.100535, "lon": -118.288505}, {"lat": 34.099902, "lon": -118.287399}, {"lat": 34.102251, "lon": -118.287403}, {"lat": 34.1018, "lon": -118.286716}, {"lat": 34.101133, "lon": -118.2874}, {"lat": 34.096917, "lon": -118.285385}, {"lat": 34.096205, "lon": -118.284572}, {"lat": 34.097061, "lon": -118.284074}, {"lat": 34.099046, "lon": -118.28306}, {"lat": 34.098179, "lon": -118.282761}, {"lat": 34.098179, "lon": -118.281075}, {"lat": 34.09701, "lon": -118.281945}, {"lat": 34.095811, "lon": -118.282443}, {"lat": 34.096958, "lon": -118.283054}, {"lat": 34.096542, "lon": -118.283056}, {"lat": 34.09491, "lon": -118.282442}, {"lat": 34.095585, "lon": -118.28179}, {"lat": 34.096024, "lon": -118.279795}, {"lat": 34.097596, "lon": -118.279776}, {"lat": 34.095091, "lon": -118.281013}, {"lat": 34.094442, "lon": -118.281417}, {"lat": 34.093403, "lon": -118.281442}, {"lat": 34.091681, "lon": -118.280876}, {"lat": 34.091259, "lon": -118.281142}, {"lat": 34.090961, "lon": -118.281325}, {"lat": 34.088782, "lon": -118.282842}, {"lat": 34.090347, "lon": -118.282857}, {"lat": 34.089433, "lon": -118.283433}, {"lat": 34.089111, "lon": -118.283641}, {"lat": 34.090795, "lon": -118.28258}, {"lat": 34.091462, "lon": -118.282166}, {"lat": 34.093749, "lon": -118.27956}, {"lat": 34.094895, "lon": -118.278862}, {"lat": 34.09483, "lon": -118.280816}, {"lat": 34.095318, "lon": -118.279716}, {"lat": 34.095794, "lon": -118.279086}, {"lat": 34.096383, "lon": -118.278688}, {"lat": 34.096966, "lon": -118.278668}, {"lat": 34.09637, "lon": -118.277801}, {"lat": 34.096363, "lon": -118.277216}, {"lat": 34.101021, "lon": -118.273982}, {"lat": 34.098539, "lon": -118.276077}, {"lat": 34.097272, "lon": -118.275631}, {"lat": 34.096993, "lon": -118.277969}, {"lat": 34.096955, "lon": -118.277191}, {"lat": 34.097235, "lon": -118.276636}, {"lat": 34.097631, "lon": -118.278111}, {"lat": 34.098095, "lon": -118.277802}, {"lat": 34.099043, "lon": -118.278424}, {"lat": 34.099485, "lon": -118.278658}, {"lat": 34.098182, "lon": -118.279915}, {"lat": 34.098948, "lon": -118.280668}, {"lat": 34.099138, "lon": -118.28142}, {"lat": 34.09914, "lon": -118.282492}, {"lat": 34.099611, "lon": -118.283062}, {"lat": 34.100006, "lon": -118.282101}, {"lat": 34.100003, "lon": -118.281338}, {"lat": 34.099871, "lon": -118.280658}, {"lat": 34.098482, "lon": -118.286243}, {"lat": 34.099181, "lon": -118.28625}, {"lat": 34.09959, "lon": -118.286258}, {"lat": 34.098661, "lon": -118.285183}, {"lat": 34.099992, "lon": -118.284328}, {"lat": 34.101004, "lon": -118.283957}, {"lat": 34.10082, "lon": -118.283959}, {"lat": 34.100902, "lon": -118.285704}, {"lat": 34.100883, "lon": -118.28602}, {"lat": 34.097948, "lon": -118.286795}]
+        var colors = ['#c554f5', '#bae0c3', '#bae0c3', '#bae0c3', '#b36fa7', '#b36fa7', '#294ca9', '#294ca9', '#ffeac9', '#ffeac9', '#ffeac9', '#ffeac9', '#ffeac9', '#ffeac9', '#54e4fb', '#ffeac9', '#54e4fb', '#54e4fb', '#54e4fb', '#54e4fb', '#54e4fb', '#54e4fb', '#151c4e', '#151c4e', '#151c4e', '#ae2ff8', '#ae2ff8', '#ae2ff8', '#37e873', '#37e873', '#37e873', '#37e873', '#37e873', '#d0dc71', '#d0dc71', '#d0dc71', '#d0dc71', '#d0dc71', '#62c1b5', '#d0dc71', '#8145c9', '#e5b151', '#e5b151', '#e5b151', '#e5b151', '#e5b151', '#e5b151', '#e5b151', '#014c8a', '#014c8a', '#014c8a', '#dcc8ee', '#dcc8ee', '#dcc8ee', '#dcc8ee', '#dcc8ee', '#dcc8ee', '#dcc8ee', '#88f48b', '#88f48b', '#88f48b', '#88f48b', '#88f48b', '#88f48b', '#88f48b', '#88f48b', '#c0fd6a', '#c0fd6a', '#c0fd6a', '#c0fd6a', '#c0fd6a', '#c0fd6a', '#8cd4d7', '#d75448', '#d75448', '#496605', '#496605', '#598045', '#598045', '#598045', '#598045', '#598045', '#80bc46', '#968367', '#968367', '#968367', '#968367', '#968367', '#968367', '#968367', '#968367', '#9279ac', '#9279ac', '#9279ac', '#e06620', '#e06620', '#e06620', '#e06620', '#e29fd3', '#e29fd3', '#e29fd3', '#e29fd3', '#ce4593', '#ce4593', '#ce4593', '#ce4593', '#ce4593', '#ce4593', '#ce4593', '#a35d1f', '#a35d1f', '#a35d1f', '#c79154', '#c91bf9', '#c91bf9', '#c91bf9', '#c91bf9', '#c91bf9', '#4f22d7']
+        var foldable = new L.Foldable({
+            closeOnMapClick: false,
+            position: 'topleft',
+            title: 'Routing options:'
+        }).addTo(map);
+
+        foldable.addContent(createFoldableContent());
+
+        getRoute(computeBestOrder, routeRepresentationValue);
+
+        function createFoldableContent() {
+            var container = document.createElement('div');
+            container.appendChild(createSelect());
+            container.appendChild(createCheckbox());
+            return container;
+        }
+
+        function createCheckbox() {
+            var checkboxId = 'checkbox-route-representation';
+            var container = document.createElement('div');
+            container.className = 'checkbox-route-representation-label';
+            checkbox = document.createElement('input');
+            checkbox.className = 'checkbox-route-representation';
+            checkbox.type = 'checkbox';
+            checkbox.id = checkboxId;
+            checkbox.onchange = function() {
+                computeBestOrder = checkbox.checked;
+                getRoute(computeBestOrder, routeRepresentationValue);
+            };
+            var label = document.createElement('label');
+            label.htmlFor = checkboxId;
+            label.appendChild(document.createTextNode('Show tomtom route'));
+            container.appendChild(checkbox);
+            container.appendChild(label);
+            return container;
+        }
+
+        function createSelect() {
+            var container = document.createElement('div');
+            select = document.createElement('select');
+            select.className = 'route-representation-select';
+            select.appendChild(new Option('Polyline', 'polyline'));
+            select.appendChild(new Option('None', 'none'));
+            select.onchange = function() {
+                routeRepresentationValue = select.value;
+                getRoute(computeBestOrder, routeRepresentationValue);
+            };
+            var routeRepresentationLabel = document.createElement('div');
+            routeRepresentationLabel.className = 'select-label';
+            routeRepresentationLabel.innerHTML = 'Route representation';
+            container.appendChild(routeRepresentationLabel);
+            container.appendChild(select);
+
+            return container;
+        }
+
+        function drawMarkers(locations) {
+            locations.forEach(function(coordinates, index) {
+                console.log(colors[index]);
+                var svgText = '<svg width="30" height="36" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">' +
+                    '<ellipse id="svg_1" fill="#000" opacity="0.2" ry="2" rx="7.661" cy="34" cx="15"/>' +
+                    `<path id="svg_2" fill="${colors[index]}" d="m25.6,4.4c-2.7,-2.7 -6.5,-4.4 -10.6,-4.4s-7.9,1.7 -10.6,4.4c-2.7,2.7 -4.4,6.5 -4.4,10.6s1.7,7.9 4.4,10.6c2.7,2.7 10.6,8.9 10.6,8.9s7.9,-6.2 10.6,-8.9c2.7,-2.7 4.4,-6.5 4.4,-10.6s-1.7,-7.9 -4.4,-10.6z"/>` +
+                    '<circle id="svg_3" fill="none" r="12" cy="15" cx="15" class="innerCircle"/>' +
+                    '<text fill="#ffffff" stroke="#000000" stroke-width="0" x="15" y="23" id="svg_4" font-size="14" font-family="serif" font-weight="900" text-anchor="middle" xml:space="preserve">' + (index + 1) + '</text>' +
+                    '</svg>';
+
+                var url = 'data:image/svg+xml,' + encodeURIComponent(svgText);
+                var myIcon = L.icon({
+                    iconUrl: url,
+                    iconSize: [30, 36],
+                    iconAnchor:  [15, 36]
+                });
+                markers.push(L.marker(coordinates, {
+                    icon: myIcon
+                }).addTo(map));
+            });
+        }
+
+        function drawRoute(routeJson, color='#06f') {
+            route = tomtom.L.geoJson(routeJson, {style: {color, opacity: 1}}).addTo(map);
+
+            if (computeBestOrder) {
+                drawMarkers(getOptimizedLocations(routeJson.optimizedWaypoints));
+            } else {
+                drawMarkers(locations);
+            }
+
+            map.fitBounds(route.getBounds(), {padding: [5, 5]});
+        }
+
+        function drawLines(optimizedWaypoints) {
+            var polylineOptions = {color: '#06f', dashArray: '20', weight: 4};
+            if (optimizedWaypoints) {
+                var optimizedLocations = getOptimizedLocations(optimizedWaypoints);
+                polyline = L.polyline(optimizedLocations, polylineOptions).addTo(map);
+                drawMarkers(optimizedLocations);
+            } else {
+                polyline = L.polyline(locations, polylineOptions).addTo(map);
+                drawMarkers(locations);
+            }
+            map.fitBounds(polyline.getBounds());
+        }
+
+        function getOptimizedLocations(optimizedWaypoints) {
+            var optimizedLocations = [locations[0]];
+            optimizedWaypoints.forEach(function(waypoint) {
+                optimizedLocations.push(locations[waypoint.optimizedIndex + 1]);
+            });
+            optimizedLocations.push(locations[locations.length - 1]);
+            return optimizedLocations;
+        }
+
+        function clearMap() {
+            if (route) {
+                map.removeLayer(route);
+            }
+
+            if (polyline) {
+                map.removeLayer(polyline);
+            }
+
+            markers.forEach(function(marker) {
+                map.removeLayer(marker);
+            });
+            markers = [];
+        }
+
+        function getRoute(computeBestOrder, routeRepresentation) {
+            console.log('hello');
+            showLoader();
+            clearMap();
+
+            if (!computeBestOrder && routeRepresentation === 'none') {
+                drawLines();
+                hideLoader();
+                return;
+            }
+
+            var routing = tomtom.routing({traffic: false})
+                .locations(locations)
+                .routeRepresentation(routeRepresentation)
+                .computeBestOrder(computeBestOrder);
+
+            routing.go()
+                .then(function(routeJson) {
+                    if (routeRepresentation === 'polyline') {
+                        drawRoute(routeJson, computeBestOrder ? '#ff0000' : '#06f');
+                    } else {
+                        drawLines(routeJson.optimizedWaypoints);
+                    }
+                    console.log(routeJson);
+                    console.log(routeJson.features[0].properties.summary);
+                    console.log(routeJson.features[0].properties.summary.travelTimeInSeconds);
+                    hideLoader();
+                }).catch(function() {
+                    tomtom.messageBox({closeAfter: 3000}).setContent('An error occured, please try again').openOn(map);
+                    hideLoader();
+                });
+        }
+
+        function showLoader() {
+            loader.style.display = 'block';
+            checkbox.disabled = true;
+            select.disabled = true;
+        }
+
+        function hideLoader() {
+            loader.style.display = 'none';
+            checkbox.disabled = false;
+            select.disabled = false;
+        }
+
+    </script>
+</body>
+</html>
