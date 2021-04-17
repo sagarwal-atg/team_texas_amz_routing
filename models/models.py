@@ -47,3 +47,23 @@ class IRLLinearModel(torch.nn.Module):
                 output[:, i, j] = input[:, i, j] @ self.theta[i, j]
         
         return output
+
+
+class LogisticRegressionModel(torch.nn.Module):
+    def __init__(self, max_route_len, link_features_size, route_features_size):
+        super().__init__()
+        self.link_features_size = link_features_size
+        self.route_features_size = route_features_size
+        self.linear = torch.nn.Linear(max_route_len * (link_features_size + route_features_size), max_route_len)
+
+    def forward(self, input):
+        """
+        input : (batch_size, max_route_len, max_route_len, features)
+
+        """
+        output = torch.zeros((input.shape[0], input.shape[1], input.shape[2])).float()
+        for stop_i in range(input.shape[1]):
+            output[stop_i] 
+
+        
+        return output

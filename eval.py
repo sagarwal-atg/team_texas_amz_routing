@@ -66,7 +66,7 @@ def compute_tsp_and_edit_distance(distance_matrix, gt_stop_seq):
     sorted_gt_stop_seq = [k for k, v in sorted(gt_stop_seq.items(), key=lambda item: item[1])]
     # edit_dist = min(editdistance.eval(tsp_seq, sorted_gt_stop_seq),
     #                 editdistance.eval(tsp_seq, list(reversed(sorted_gt_stop_seq))))
-    edit_dist = editdistance.eval(tsp_seq, sorted_gt_stop_seq)
+    edit_dist = editdistance.eval(copy.deepcopy(tsp_seq), sorted_gt_stop_seq)
     return tsp_seq, sorted_gt_stop_seq, edit_dist
 
 

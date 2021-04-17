@@ -66,8 +66,8 @@ class DistMatrixDataset(Dataset):
         return self.x.shape[0]
 
     def __getitem__(self, idx):
-        x_tensor = torch.from_numpy(self.x[idx])
-        y_tensor = torch.from_numpy(self.y[idx])
+        x_tensor = torch.from_numpy(self.x[idx]).float()
+        y_tensor = torch.from_numpy(self.y[idx]).float()
         orig_dist_matrix = self.orig_dist[idx]
         id = self.data_route_ids[idx]
         return (x_tensor, y_tensor, id, orig_dist_matrix)
