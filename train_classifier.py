@@ -11,8 +11,8 @@ BATCHSIZE = 32
 class Path:
     base = '/home/josiah/code/arc/my-app/data/model_build_inputs/'
     route = base + 'route_data.json'
-    labels = base + 'actual_sequences.json'
-    travel_times = base + 'travel_times.json'
+    sequence = base + 'actual_sequences.json'
+    travel_time = base + 'travel_times.json'
     packages = base + 'package_data.json'
 
 
