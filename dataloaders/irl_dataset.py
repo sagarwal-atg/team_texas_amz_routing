@@ -101,7 +101,7 @@ class IRLDataset(Dataset):
         lables = concat([
             sequence_data[route_id].get_route_order() for route_id in route_ids])
 
-        # shape(route_date)=[n_routes, num_route_features]
+        # shape(route_data)=[n_routes, num_route_features]
         route_data = np.repeat(route_features, route_lengths, axis=0)
         # shape(route_date)=[sum(route_lengths), num_route_features]
         route_data = np.tile(route_data[np.newaxis,:,np.newaxis], [1,1,self.max_route_len])
