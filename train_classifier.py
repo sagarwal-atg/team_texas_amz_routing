@@ -1,13 +1,15 @@
+import torch
 from models.models import ARC_Classifier
-from dataloaders.irl_dataset import IRLDataset, LinkFeatures, RouteFeatures
-from torch.utils.data import DataLoader
+from dataloaders.irl_dataset import IRLDataset
+from torch.utils.data import DataLoader, random_split
+import numpy as np
 
 null_callback = lambda *args, **kwargs: None
 
 BATCHSIZE = 32
 
 class Path:
-    base = '/home/josiah/code/arc/my-app/data/model_build_inputs/small/'
+    base = '/home/josiah/code/arc/my-app/data/model_build_inputs/'
     route = base + 'route_data.json'
     labels = base + 'actual_sequences.json'
     travel_times = base + 'travel_times.json'
@@ -25,23 +27,40 @@ def fit(model, dataloader, epochs=1, verbose=0,
             loss = model.train_on_batch(inputs, labels)
             epoch_loss += loss
             cb_after_batch_update(loss)
-        cb_after_epoch(epoch, epoch_loss)
+        cb_after_epoch(epoch, model)
         if verbose > 0:
-            print(f'Epoch: {epoch}, Loss {epoch_loss:.4f}')
+            accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
+            print(f'Epoch: {epoch}, Loss {epoch_loss / len(loss):.4f}, Accuracy: {accuracy:.2f}')
+
 
 def main():
     paths = Path()
-    dataset = IRLDataset(paths.route, paths.labels, paths.travel_times, paths.packages)
-    trainloader = DataLoader(dataset, batch_size=BATCHSIZE, shuffle=True)
+    data = IRLDataset(paths, slice_end=800)
+    train_size = int(len(data)*.7)
+    test_size = len(data) - train_size
+    train, test = random_split(data, [train_size, test_size])
+    print(f'Train size: {len(train)}, Test size: {len(test)}')
+    train_loader = DataLoader(train, batch_size=BATCHSIZE, shuffle=True)
+
+    def test_cb(epoch, model):
+        inputs, labels = test[:]
+        with torch.no_grad():
+            outputs = model(inputs)
+        accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
+        loss = model.get_loss(outputs, labels)
+        print(f'Epoch: {epoch}, Test Loss {loss / len(loss):.4f}, Test Accuracy: {accuracy:.2f}')
+
+
     print('Loaded Data')
 
     model = ARC_Classifier(
-        dataset.max_route_len,
-        dataset.num_features,
-        hidden_sizes=[256]
+        data.max_route_len,
+        data.num_features,
+        hidden_sizes=[256],
+        lr=0.01
     )
 
-    fit(model, trainloader, epochs=100, verbose=1)
+    fit(model, train_loader, epochs=500, verbose=1, cb_after_epoch=test_cb)
     print('Finished Training')
 
 main()

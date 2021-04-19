@@ -58,16 +58,19 @@ def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):
 
 
 class Classifier(nn.Module):
-    def __init__(self, sizes):
+    def __init__(self, sizes, lr):
         super().__init__()
         self.mlp = mlp(sizes)
 
         # This loss fn combines LogSoftmax and NLLLoss in one single class
         self.loss_fn = nn.CrossEntropyLoss()
-        self.optim = torch.optim.SGD(self.parameters(), lr=0.001, momentum=0.9)
+        self.optim = torch.optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, x):
         return self.mlp(x)
+
+    def get_loss(self, outputs, labels):
+        return self.loss_fn(outputs, labels)
 
     def train_on_batch(self, inputs, labels):
         # zero the parameter gradients
@@ -75,7 +78,7 @@ class Classifier(nn.Module):
 
         # forward + backward + optimize
         outputs = self.forward(inputs)
-        loss = self.loss_fn(outputs, labels)
+        loss = self.get_loss(outputs, labels)
         loss.backward()
         self.optim.step()
         return loss
@@ -84,6 +87,7 @@ class ARC_Classifier(Classifier):
     """
     Amazon Routing Competition (ARC) Classifier
     """
-    def __init__(self, max_route_len, num_features, hidden_sizes=[]):
+    def __init__(self, max_route_len, num_features, hidden_sizes=[], lr=0.001):
         in_size = max_route_len * num_features
-        super().__init__([in_size, *hidden_sizes, max_route_len])
+        sizes=[in_size, *hidden_sizes, max_route_len]
+        super().__init__(sizes, lr=lr)
