@@ -20,17 +20,17 @@ def fit(model, dataloader, epochs=1, verbose=0,
         cb_after_batch_update=null_callback, cb_after_epoch=null_callback):
 
     for epoch in range(epochs):  # loop over the dataset multiple times
-        epoch_loss = 0
+        epoch_loss = []
         for data in dataloader:
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
             loss = model.train_on_batch(inputs, labels)
-            epoch_loss += loss
+            epoch_loss.append(loss.detach())
             cb_after_batch_update(loss)
         cb_after_epoch(epoch, model)
         if verbose > 0:
             accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
-            print(f'Epoch: {epoch}, Loss {epoch_loss / len(loss):.4f}, Accuracy: {accuracy:.2f}')
+            print(f'Epoch: {epoch}, Loss {np.mean(epoch_loss):.4f}, Accuracy: {accuracy:.2f}')
 
 
 def main():
@@ -48,10 +48,7 @@ def main():
             outputs = model(inputs)
         accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
         loss = model.get_loss(outputs, labels)
-        print(f'Epoch: {epoch}, Test Loss {loss / len(loss):.4f}, Test Accuracy: {accuracy:.2f}')
-
-
-    print('Loaded Data')
+        print(f'Epoch: {epoch}, Test Loss {loss:.4f}, Test Accuracy: {accuracy:.2f}')
 
     model = ARC_Classifier(
         data.max_route_len,
