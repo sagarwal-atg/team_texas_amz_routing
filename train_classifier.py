@@ -3,11 +3,11 @@ from models.models import ARC_Classifier
 from dataloaders.irl_dataset import IRLDataset
 from torch.utils.data import DataLoader, random_split
 import numpy as np
+from easydict import EasyDict as edict
+import yaml
+import argparse
 
 null_callback = lambda *args, **kwargs: None
-
-BATCHSIZE = 32
-
 
 class Path:
     def __init__(self, base=None) -> None:        
@@ -35,14 +35,13 @@ def fit(model, dataloader, epochs=1, verbose=0,
             print(f'Epoch: {epoch}, Loss {np.mean(epoch_loss):.4f}, Accuracy: {accuracy:.2f}')
 
 
-def main():
-    paths = Path()
+def main(paths, batch_size, epochs):
     data = IRLDataset(paths, slice_end=800)
     train_size = int(len(data)*.7)
     test_size = len(data) - train_size
     train, test = random_split(data, [train_size, test_size])
     print(f'Train size: {len(train)}, Test size: {len(test)}')
-    train_loader = DataLoader(train, batch_size=BATCHSIZE, shuffle=True)
+    train_loader = DataLoader(train, batch_size, shuffle=True)
 
     def test_cb(epoch, model):
         inputs, labels = test[:]
@@ -59,11 +58,10 @@ def main():
         lr=0.01
     )
 
-    fit(model, train_loader, epochs=500, verbose=1, cb_after_epoch=test_cb)
+    fit(model, train_loader, epochs, verbose=1, cb_after_epoch=test_cb)
     print('Finished Training')
 
-def test():
-    paths = Path('./test')
+def test(paths):
     data = IRLDataset(paths, slice_end=800)
     eq = lambda a, b: torch.all(a.eq(b))
     # y should be [2, 0, 1] meaning we go [A->C, B->A, C->B]
@@ -76,5 +74,11 @@ def test():
         [1/3,1,0,0,2/3,1],
         [2/3,0,1/3,1,0,0]]))
 
-# test()
-main()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Training code')
+    parser.add_argument('--config', default='./configs/config.yaml', type=str, help='yaml config file')
+    args = parser.parse_args()
+    config = edict(yaml.safe_load(open(args.config, 'r')))
+    paths = Path('./small_data')
+
+    main(paths, config.batchsize, config.num_train_epochs)

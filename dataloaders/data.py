@@ -77,7 +77,7 @@ class TravelTimeDatum:
     def __init__(self, data: Dict[str, Dict[str, float]]) -> None:
         self._data = data
 
-    def as_matrix(self, stop_ids):
+    def as_matrix(self, stop_ids: List[str]=None):
         route_len = len(stop_ids)
         times = np.zeros((route_len, route_len))
         for i, stop1 in enumerate(stop_ids):
