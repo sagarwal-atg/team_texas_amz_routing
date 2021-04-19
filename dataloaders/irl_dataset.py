@@ -1,6 +1,7 @@
 import json
-from typing import Sequence
+from typing import Dict, List, Sequence
 import numpy as np
+from numpy import concatenate as concat
 from collections import namedtuple
 from sklearn.preprocessing import MinMaxScaler
 import enum
@@ -8,102 +9,118 @@ import enum
 import torch
 from torch.utils.data import Dataset
 
-class LinkFeatures(enum.Enum):
-    Distance = 0
-    # add additional features here along with their index
 
-class RouteFeatures(enum.Enum):
-    VehicleCapacity = 0
-    RouteQuality = 1
-    NumPackages = 2
-    # add additional features here along with their index
+def order_stops(stop_sequence: Dict[str, int]) -> List[str]:
+    """
+    stop_sequence: a dict whose values indicate the order we visited the stops
+        ex: {'A': 0, 'B': 2, 'C': 1}
+    Returns: a list ordered by the values in stop_sequence
+        ex: ['A', 'C', 'B']
+    """
+    return sorted(stop_sequence, key=lambda k: stop_sequence[k])
 
+def get_route_order(stop_sequence: Dict[str, int]):
+    """
+    stop_sequence: a dict whose values indicate the order we visited the stops
+        ex: {'A': 0, 'B': 2, 'C': 1}
+    Returns: a list of ints whose index is the FROM index in stop_sequence and whose value is
+        the TO index in stop_sequence.
+        ex: [2, 0, 1] (meaning that we go from [A->C, B->A, C->B])
+    """
+    stops_ordered = order_stops(stop_sequence)
+    next_stop = {stop: next_stop for stop, next_stop in zip(np.roll(stops_ordered, 1), stops_ordered)}
+    stop_ids = list(stop_sequence.keys())
+    stop_idx = {k: i for i, k in enumerate(stop_ids)}
+    labels = [stop_idx[next_stop[stop]] for stop in stop_idx.keys()] 
+    return labels
 
-route_score_map = {'Low': 0, 'Medium': 1, 'High': 2}
+def extract_travel_times(stop_ids: List[str], travel_times: List[List[float]]):
+    """
+    stop_ids: a list which is in the same order as the labels
+        ex: ['A', 'B', 'C']
+    Returns: a matrix whose ij entry is the travel time from stop_ids[i] -> stop_ids[j]
+        The times are normalized by dividing across the rows so that the sum time from
+        stop_ids[i] -> all other stops is 1.
+    """
+    stop_idx = {k: i for i, k in enumerate(stop_ids)}
+    route_len = len(stop_ids)
+    times = np.zeros((route_len, route_len))
+    for i in stop_ids:
+        for j in stop_ids:
+            times[stop_idx[i]][stop_idx[j]] = travel_times[i][j]
+    times /= times.sum(axis=1)[:,np.newaxis]
 
+    return times
 
-def check_neighbor(u: int, v: int, seq_len: int):
-    # return true if we go from u to v
-    return v - u == 1 or v - u == seq_len
-
+def zero_right_pad(m, size):
+    assert size >= m.shape[2]
+    m2 = np.zeros((m.shape[0], m.shape[1], size))
+    m2[...,:m.shape[-1]] = m
+    return m2
 
 class IRLDataset(Dataset):
-    def __init__(self, route_path, label_path, travel_times_path, packages_path, max_route_len=None):
-        with open(route_path) as f:
+    def __init__(self, paths, slice_begin=None, slice_end=None):
+        with open(paths.route) as f:
             route_data = json.load(f)
 
-        with open(label_path) as f:
-            data_actual = json.load(f)
+        with open(paths.labels) as f:
+            sequence_data = json.load(f)
 
-        with open(travel_times_path) as f:
-            data_travel_time = json.load(f)
+        with open(paths.travel_times) as f:
+            travel_time_data = json.load(f)
 
-        with open(packages_path) as f:
-            package_data = json.load(f)
+        # with open(paths.packages) as f:
+        #     package_data = json.load(f)
 
-        route_ids = list(route_data.keys())
+        route_ids = [k for k, v in route_data.items() if v['route_score'] == 'High']
+        route_ids = route_ids[slice(slice_begin, slice_end)]
         n_routes = len(route_ids)
-        route_lengths = [len(data_actual[route_id]['actual']) for route_id in route_ids]
+        print(f'Using data from {n_routes} routes.')
+        route_lengths = [len(sequence_data[route_id]['actual']) for route_id in route_ids]
 
-        if max_route_len is None:
-            max_route_len = max(route_lengths)
-        self.max_route_len = max_route_len
+        self.max_route_len = max(route_lengths)
 
-        self.num_link_features = len(LinkFeatures)
-        self.num_route_features = len(RouteFeatures)
-        self.num_features = self.num_link_features + self.num_route_features
-
-        raw_link_data = []
-        route_taken_matrices = []
-        raw_route_data = np.zeros((n_routes, self.num_route_features))
-
-        # Extract Features Vectors
-        for route_number, (route_id, route_len) in enumerate(zip(route_ids, route_lengths)):
-            stop_sequence = data_actual[route_id]['actual']
-
-            stop_ids = list(stop_sequence.keys())
-
-            stop_idx = {k: i for i, k in enumerate(stop_ids)}
-
-            distances = np.zeros((route_len, max_route_len))
-            route_matrix = np.zeros((route_len, max_route_len))
-            for i in stop_ids:
-                for j in stop_ids:
-                    distances[stop_idx[i]][stop_idx[j]] = data_travel_time[route_id][i][j]
-                    if check_neighbor(stop_sequence[i], stop_sequence[j], len(stop_sequence)):
-                        route_matrix[stop_idx[i]][stop_idx[j]] = 1
-
-            route_taken_matrices.append(route_matrix)
-
-            link_features = np.dstack([distances])
-            raw_link_data.append(link_features)
-
-        # Extract route data
-        for route_number in range(n_routes):
+        def get_route_features(route_id):
             vehicle_cap = route_data[route_id]['executor_capacity_cm3']
-            route_score = route_data[route_id]['route_score']
-            int_route_score = route_score_map[route_score]
-            num_packages = sum([len(package_info) for package_info in package_data[route_id].values()])
+            # add any other functions here for more route features
+            return np.array([vehicle_cap])
 
-            raw_route_data[route_number, RouteFeatures.VehicleCapacity.value] = vehicle_cap
-            raw_route_data[route_number, RouteFeatures.RouteQuality.value] = int_route_score
-            raw_route_data[route_number, RouteFeatures.NumPackages.value] = num_packages
+        def get_link_features(route_id):
+            """
+            Returns: a matrix of shape [route_len, route_len, n] where n is the number of features
+            """
+            stop_ids = list(sequence_data[route_id]['actual'].keys())
+            times = extract_travel_times(stop_ids, travel_time_data[route_id])
+            # add any other functions here for more link features
+            return np.array([times])
+
+        # Extract features
+        link_features = [get_link_features(route_id) for route_id in route_ids]
+        route_features = concat([
+            get_route_features(route_id) for route_id in route_ids])
+
+        # Make all matrices the same width by adding 0's to the right side
+        link_features = concat([
+            zero_right_pad(matrix, self.max_route_len) for matrix in link_features], axis=1)
+
+        # Extract labels
+        lables = concat([
+            get_route_order(sequence_data[route_id]['actual']) for route_id in route_ids])
 
         # shape(route_date)=[n_routes, num_route_features]
-        route_data = np.repeat(raw_route_data, route_lengths, 0)
+        route_data = np.repeat(route_features, route_lengths, axis=0)
         # shape(route_date)=[sum(route_lengths), num_route_features]
-        route_data = np.tile(route_data[:,np.newaxis,:], [1,max_route_len,1])
-        # shape(route_date)=[sum(route_lengths), max_route_len, num_route_features]
-        link_data = np.concatenate(raw_link_data)
-        x = np.dstack([route_data, link_data])
-        # shape(x)=[sum(route_lengths), max_route_len, num_features]
+        route_data = np.tile(route_data[np.newaxis,:,np.newaxis], [1,1,self.max_route_len])
+        # shape(route_date)=[max_route_len, sum(route_lengths), num_route_features]
+        x = concat([link_features]) # skipping route_data for now
+        self.num_features = x.shape[0]
+        # shape(x)=[num_features, sum(route_lengths), max_route_len]
+        x = np.transpose(x, (1,2,0))
         x = x.reshape(x.shape[0], x.shape[1] * x.shape[2])
         # shape(x)=[sum(route_lengths), max_route_len * num_features]
-        y = np.concatenate(route_taken_matrices)
-        # shape(y)=[sum(route_lengths), max_route_len]
 
         self.x = torch.FloatTensor(x)
-        self.y = torch.LongTensor(np.argmax(y, axis=1)) # convert one-hot-encoding to list of indexes
+        self.y = torch.LongTensor(lables)
 
     def __len__(self):
         return self.x.shape[0]
