@@ -1,126 +1,115 @@
 import json
+from typing import Sequence
 import numpy as np
 from collections import namedtuple
 from sklearn.preprocessing import MinMaxScaler
+import enum
 
 import torch
 from torch.utils.data import Dataset
 
+class LinkFeatures(enum.Enum):
+    Distance = 0
+    # add additional features here along with their index
 
-LinkFeatures = namedtuple('LinkFeatures',
-                          ['dist'])
+class RouteFeatures(enum.Enum):
+    VehicleCapacity = 0
+    RouteQuality = 1
+    NumPackages = 2
+    # add additional features here along with their index
 
-RouteFeatures = namedtuple('RouteFeatures',
-                          ['vehicle_cap',
-                           'route_quality',
-                           'num_packages'])
 
 route_score_map = {'Low': 0, 'Medium': 1, 'High': 2}
 
 
+def check_neighbor(u: int, v: int, seq_len: int):
+    # return true if we go from u to v
+    return v - u == 1 or v - u == seq_len
+
+
 class IRLDataset(Dataset):
-    def __init__(self, config):
-        with open(config.base_path + config.route_filepath) as f:
+    def __init__(self, route_path, label_path, travel_times_path, packages_path, max_route_len=None):
+        with open(route_path) as f:
             route_data = json.load(f)
 
-        with open(config.base_path + config.actual_filepath) as f:
+        with open(label_path) as f:
             data_actual = json.load(f)
 
-        with open(config.base_path + config.travel_times_filepath) as f:
+        with open(travel_times_path) as f:
             data_travel_time = json.load(f)
-        
-        with open(config.base_path + config.package_data_filepath) as f:
+
+        with open(packages_path) as f:
             package_data = json.load(f)
-        
+
         route_ids = list(route_data.keys())
-        datasize = config.datasize
-        if config.datasize < 0:
-            datasize = len(route_ids)
+        n_routes = len(route_ids)
+        route_lengths = [len(data_actual[route_id]['actual']) for route_id in route_ids]
 
-        self.link_features = LinkFeatures(dist=0)
-        self.route_features = RouteFeatures(vehicle_cap=0, route_quality=1, num_packages=2)
+        if max_route_len is None:
+            max_route_len = max(route_lengths)
+        self.max_route_len = max_route_len
 
-        # features
-        num_link_features = len(self.link_features)
-        # package
-        num_route_features = len(self.route_features)
+        self.num_link_features = len(LinkFeatures)
+        self.num_route_features = len(RouteFeatures)
+        self.num_features = self.num_link_features + self.num_route_features
 
-        raw_link_data = np.zeros((datasize, config.max_route_len, config.max_route_len, num_link_features))
-        raw_route_data = np.zeros((datasize, num_route_features))
-        self.link_data = np.zeros((datasize, config.max_route_len, config.max_route_len, num_link_features))
-        self.route_data = np.zeros((datasize, num_route_features))
-        self.y = np.ones((datasize, config.max_route_len, config.max_route_len))
+        raw_link_data = []
+        route_taken_matrices = []
+        raw_route_data = np.zeros((n_routes, self.num_route_features))
 
-        self.stop_dict = dict()
-        self.data_route_ids = []
-        
         # Extract Features Vectors
-        for route_number in range(datasize):
-            stop_sequence = {k: v for k, v in data_actual[route_ids[route_number]]['actual'].items()}
-                
-            matrix_order = list(stop_sequence.keys())
+        for route_number, (route_id, route_len) in enumerate(zip(route_ids, route_lengths)):
+            stop_sequence = data_actual[route_id]['actual']
 
-            temp_dict = {}
-            for i in range(len(matrix_order)):
-                temp_dict[matrix_order[i]] = i
+            stop_ids = list(stop_sequence.keys())
 
-            distances = np.zeros((config.max_route_len, config.max_route_len))
-            actual_utility = np.zeros((config.max_route_len, config.max_route_len))
-            for i in matrix_order:
-                for j in matrix_order:
-                    distances[temp_dict[i]][temp_dict[j]] = data_travel_time[route_ids[route_number]][i][j]
-                    if self.check_neighbor(stop_sequence[i], stop_sequence[j], len(stop_sequence)):
-                        actual_utility[temp_dict[i]][temp_dict[j]] = 1
-                
-            self.y[route_number] = actual_utility
+            stop_idx = {k: i for i, k in enumerate(stop_ids)}
 
-            raw_link_data[route_number, :, :, self.link_features.dist] = distances
-            self.stop_dict[route_ids[route_number]] = stop_sequence 
-            self.data_route_ids.append(route_ids[route_number])
-        
-        # Extract Package Data
-        for route_number in range(datasize):
-            vehicle_cap = route_data[route_ids[route_number]]['executor_capacity_cm3']
-            route_score = route_data[route_ids[route_number]]['route_score']
+            distances = np.zeros((route_len, max_route_len))
+            route_matrix = np.zeros((route_len, max_route_len))
+            for i in stop_ids:
+                for j in stop_ids:
+                    distances[stop_idx[i]][stop_idx[j]] = data_travel_time[route_id][i][j]
+                    if check_neighbor(stop_sequence[i], stop_sequence[j], len(stop_sequence)):
+                        route_matrix[stop_idx[i]][stop_idx[j]] = 1
+
+            route_taken_matrices.append(route_matrix)
+
+            link_features = np.dstack([distances])
+            raw_link_data.append(link_features)
+
+        # Extract route data
+        for route_number in range(n_routes):
+            vehicle_cap = route_data[route_id]['executor_capacity_cm3']
+            route_score = route_data[route_id]['route_score']
             int_route_score = route_score_map[route_score]
 
             num_packages = 0
-            package_data_for_route = package_data[route_ids[route_number]]
-            for (stop, package_info) in package_data_for_route.items():
+            package_data_for_route = package_data[route_id]
+            for (_, package_info) in package_data_for_route.items():
                 num_packages += len(package_info)
 
-            raw_route_data[route_number, self.route_features.vehicle_cap] = vehicle_cap
-            raw_route_data[route_number, self.route_features.route_quality] = int_route_score
-            raw_route_data[route_number, self.route_features.num_packages] = num_packages
-        
-        # Post Process Data
-        scaler = MinMaxScaler()
-        self.route_data = scaler.fit_transform(raw_route_data)
+            raw_route_data[route_number, RouteFeatures.VehicleCapacity.value] = vehicle_cap
+            raw_route_data[route_number, RouteFeatures.RouteQuality.value] = int_route_score
+            raw_route_data[route_number, RouteFeatures.NumPackages.value] = num_packages
 
-        norm = np.linalg.norm(raw_link_data[:, :, :, self.link_features.dist])
-        self.link_data[:, :, :, self.link_features.dist] = raw_link_data[:, :, :, self.link_features.dist] / norm
-        self.y = np.max(self.link_data[:, :, :, self.link_features.dist]) * \
-            ( np.ones((datasize, config.max_route_len, config.max_route_len)) - self.y)
+        # shape(route_date)=[n_routes, num_route_features]
+        route_data = np.repeat(raw_route_data, route_lengths, 0)
+        # shape(route_date)=[sum(route_lengths), num_route_features]
+        route_data = np.tile(route_data[:,np.newaxis,:], [1,max_route_len,1])
+        # shape(route_date)=[sum(route_lengths), max_route_len, num_route_features]
+        link_data = np.concatenate(raw_link_data)
+        x = np.dstack([route_data, link_data])
+        # shape(x)=[sum(route_lengths), max_route_len, num_features]
+        x = x.reshape(x.shape[0], x.shape[1] * x.shape[2])
+        # shape(x)=[sum(route_lengths), max_route_len * num_features]
+        y = np.concatenate(route_taken_matrices)
+
+        self.x = torch.FloatTensor(x)
+        self.y = torch.LongTensor(np.argmax(y, axis=1)) # convert one-hot-encoding to list of indexes
 
     def __len__(self):
-        return self.link_data.shape[0]
-    
-    def check_neighbor(self, u, v, seq_len):
-        is_neighbor = False
-        if abs(u - v) == 1:
-            is_neighbor = True
-        elif abs(u - v) == seq_len:
-            is_neighbor = True
-        return is_neighbor
+        return self.x.shape[0]
 
     def __getitem__(self, idx):
-        x = np.zeros((self.link_data.shape[1], self.link_data.shape[2],
-                      self.link_data.shape[-1] + self.route_data.shape[-1]))
-        x[:, :, :self.link_data.shape[-1]] = self.link_data[idx]
-        x[:, :, self.link_data.shape[-1]:] = self.route_data[idx]
-        x = torch.from_numpy(x).float()
-        y_tensor = torch.from_numpy(self.y[idx]).float()
-
-        # orig_dist_matrix = self.orig_dist[idx]
-        id = self.data_route_ids[idx]
-        return (x, y_tensor, id)
+        return self.x[idx], self.y[idx]
