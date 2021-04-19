@@ -52,10 +52,10 @@ def extract_travel_times(stop_ids: List[str], travel_times: List[List[float]]):
 
     return times
 
-def zero_right_pad(m, size):
-    assert size >= m.shape[2]
-    m2 = np.zeros((m.shape[0], m.shape[1], size))
-    m2[...,:m.shape[-1]] = m
+def right_pad(m, width, constant=0):
+    assert width >= m.shape[2]
+    m2 = np.ones((m.shape[0], m.shape[1], width)) * constant
+    m2[:,:,:m.shape[-1]] = m
     return m2
 
 class IRLDataset(Dataset):
@@ -99,9 +99,9 @@ class IRLDataset(Dataset):
         route_features = concat([
             get_route_features(route_id) for route_id in route_ids])
 
-        # Make all matrices the same width by adding 0's to the right side
+        # Make all matrices the same width by adding 1's to the right side
         link_features = concat([
-            zero_right_pad(matrix, self.max_route_len) for matrix in link_features], axis=1)
+            right_pad(matrix, self.max_route_len) for matrix in link_features], axis=1)
 
         # Extract labels
         lables = concat([
