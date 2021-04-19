@@ -1,9 +1,9 @@
 
 from types import SimpleNamespace
 import json
-from typing import Dict, List, Union
+from typing import Dict, List, Sequence, Union
 import numpy as np
-from munch import Munch
+from munch import Munch # used to give dot accessing to dict
 
 class RouteDatum:
     SCORE = SimpleNamespace(LOW='Low', MEDIUM='Medium', HIGH='High')

@@ -8,12 +8,14 @@ null_callback = lambda *args, **kwargs: None
 
 BATCHSIZE = 32
 
+
 class Path:
-    base = '/home/josiah/code/arc/my-app/data/model_build_inputs/'
-    route = base + 'route_data.json'
-    sequence = base + 'actual_sequences.json'
-    travel_time = base + 'travel_times.json'
-    packages = base + 'package_data.json'
+    def __init__(self, base=None) -> None:        
+        base = base or '/home/josiah/code/arc/my-app/data/model_build_inputs'
+        self.route = base + '/route_data.json'
+        self.sequence = base + '/actual_sequences.json'
+        self.travel_time = base + '/travel_times.json'
+        self.packages = base + '/package_data.json'
 
 
 def fit(model, dataloader, epochs=1, verbose=0,
@@ -60,4 +62,15 @@ def main():
     fit(model, train_loader, epochs=500, verbose=1, cb_after_epoch=test_cb)
     print('Finished Training')
 
+def test():
+    paths = Path('./test')
+    data = IRLDataset(paths, slice_end=800)
+    eq = lambda a, b: torch.all(a.eq(b))
+    assert eq(data.y, torch.LongTensor([2, 0, 1]))
+    assert eq(data.x, torch.FloatTensor([
+        [0,0,2/3,1,1/3,0],
+        [1/3,1,0,0,2/3,1],
+        [2/3,0,1/3,1,0,0]]))
+
+# test()
 main()
