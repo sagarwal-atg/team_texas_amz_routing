@@ -1,3 +1,4 @@
+import os
 import torch
 from models.models import ARC_Classifier
 from dataloaders.irl_dataset import IRLDataset
@@ -74,11 +75,26 @@ def test(paths):
         [1/3,1,0,0,2/3,1],
         [2/3,0,1/3,1,0,0]]))
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Training code')
-    parser.add_argument('--config', default='./configs/config.yaml', type=str, help='yaml config file')
-    args = parser.parse_args()
-    config = edict(yaml.safe_load(open(args.config, 'r')))
-    paths = Path('./small_data')
 
-    main(paths, config.batchsize, config.num_train_epochs)
+def get_args(config_path='./configs/config.yaml'):
+    parser = argparse.ArgumentParser(description='Training code')
+    config = edict(yaml.safe_load(open(config_path, 'r')))
+
+    parser.add_argument('--batchsize', default=config.batchsize, type=int)
+    parser.add_argument('--epochs', default=config.num_train_epochs, type=int)
+    parser.add_argument('--datapath', default=config.base_path, type=str, help='base path to the data')
+    args = parser.parse_args()
+
+    paths = edict(
+        route = os.path.join(args.datapath, config.route_filename),
+        sequence = os.path.join(args.datapath, config.sequence_filename),
+        travel_time = os.path.join(args.datapath, config.travel_times_filename),
+        packages = os.path.join(args.datapath, config.package_data_filename),
+    )
+
+    return paths, args.batchsize, args.epochs
+
+
+if __name__ == '__main__':
+    paths, batch_size, epochs = get_args()
+    main(paths, batch_size, epochs)
