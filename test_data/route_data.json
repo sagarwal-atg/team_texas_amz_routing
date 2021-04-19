@@ -1,0 +1,11 @@
+{
+    "route1": {
+        "stops": {
+            "A": {"zone_id": "zone1"},
+            "B": {"zone_id": "zone2"},
+            "C": {"zone_id": "zone1"}
+        },
+        "route_score": "High",
+        "executor_capacity_cm3": 10
+    }
+}
