@@ -25,3 +25,5 @@ Add "virtualenv" instructions (TODO).
 
 `python3 team_texas_amz_routing/eval.py linear_irl/model_900.pt`
 
+## Notes
+- small_data folder is a subset of the first 20 routes from the data/model_build_inputs

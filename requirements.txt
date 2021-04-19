@@ -9,5 +9,6 @@ torch
 torchvision
 tensorboardX
 
-
 ###### Requirements with Version Specifiers ######`
+munch==2.5.0
+nptyping==1.4.1
