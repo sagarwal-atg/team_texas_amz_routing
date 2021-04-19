@@ -83,11 +83,7 @@ class IRLDataset(Dataset):
             vehicle_cap = route_data[route_id]['executor_capacity_cm3']
             route_score = route_data[route_id]['route_score']
             int_route_score = route_score_map[route_score]
-
-            num_packages = 0
-            package_data_for_route = package_data[route_id]
-            for (_, package_info) in package_data_for_route.items():
-                num_packages += len(package_info)
+            num_packages = sum([len(package_info) for package_info in package_data[route_id].values()])
 
             raw_route_data[route_number, RouteFeatures.VehicleCapacity.value] = vehicle_cap
             raw_route_data[route_number, RouteFeatures.RouteQuality.value] = int_route_score
@@ -104,6 +100,7 @@ class IRLDataset(Dataset):
         x = x.reshape(x.shape[0], x.shape[1] * x.shape[2])
         # shape(x)=[sum(route_lengths), max_route_len * num_features]
         y = np.concatenate(route_taken_matrices)
+        # shape(y)=[sum(route_lengths), max_route_len]
 
         self.x = torch.FloatTensor(x)
         self.y = torch.LongTensor(np.argmax(y, axis=1)) # convert one-hot-encoding to list of indexes
