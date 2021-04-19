@@ -10,14 +10,6 @@ import argparse
 
 null_callback = lambda *args, **kwargs: None
 
-class Path:
-    def __init__(self, base=None) -> None:        
-        base = base or '/home/josiah/code/arc/my-app/data/model_build_inputs'
-        self.route = base + '/route_data.json'
-        self.sequence = base + '/actual_sequences.json'
-        self.travel_time = base + '/travel_times.json'
-        self.packages = base + '/package_data.json'
-
 
 def fit(model, dataloader, epochs=1, verbose=0,
         cb_after_batch_update=null_callback, cb_after_epoch=null_callback):
@@ -36,7 +28,7 @@ def fit(model, dataloader, epochs=1, verbose=0,
             print(f'Epoch: {epoch}, Loss {np.mean(epoch_loss):.4f}, Accuracy: {accuracy:.2f}')
 
 
-def main(paths, batch_size, epochs):
+def main(paths, batch_size, epochs, learning_rate):
     data = IRLDataset(paths, slice_end=800)
     train_size = int(len(data)*.7)
     test_size = len(data) - train_size
@@ -56,7 +48,7 @@ def main(paths, batch_size, epochs):
         data.max_route_len,
         data.num_features,
         hidden_sizes=[256],
-        lr=0.01
+        lr=learning_rate,
     )
 
     fit(model, train_loader, epochs, verbose=1, cb_after_epoch=test_cb)
@@ -83,6 +75,8 @@ def get_args(config_path='./configs/config.yaml'):
     parser.add_argument('--batchsize', default=config.batchsize, type=int)
     parser.add_argument('--epochs', default=config.num_train_epochs, type=int)
     parser.add_argument('--datapath', default=config.base_path, type=str, help='base path to the data')
+    parser.add_argument('--lr', default=config.learning_rate, type=str)
+
     args = parser.parse_args()
 
     paths = edict(
@@ -92,9 +86,9 @@ def get_args(config_path='./configs/config.yaml'):
         packages = os.path.join(args.datapath, config.package_data_filename),
     )
 
-    return paths, args.batchsize, args.epochs
+    return paths, args.batchsize, args.epochs, args.lr
 
 
 if __name__ == '__main__':
-    paths, batch_size, epochs = get_args()
-    main(paths, batch_size, epochs)
+    paths, batch_size, epochs, lr = get_args()
+    main(paths, batch_size, epochs, lr)
