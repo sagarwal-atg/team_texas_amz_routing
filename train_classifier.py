@@ -66,6 +66,7 @@ def test():
     paths = Path('./test')
     data = IRLDataset(paths, slice_end=800)
     eq = lambda a, b: torch.all(a.eq(b))
+    # y should be [2, 0, 1] meaning we go [A->C, B->A, C->B]
     assert eq(data.y, torch.LongTensor([2, 0, 1]))
     # the first row of x should be [0,0,2/3,1,1/3,0] representing this:
     # [time(A->A), zone_cross(A->A), time(A->B), zone_cross(A->B), time(A->C), zone_cross(A->C)]
