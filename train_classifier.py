@@ -8,7 +8,6 @@ import numpy as np
 from easydict import EasyDict as edict
 import yaml
 import pprint
-from IPython import embed
 
 from models.models import ARC_Classifier
 from dataloaders.irl_dataset import IRLDataset
@@ -50,7 +49,6 @@ def fit(model, dataloader, writer, optimizer, config, verbose=0,
         mean_loss = np.mean(epoch_loss)
         if best_loss > mean_loss:
             best_loss = mean_loss
-            embed()
             torch.save(model.state_dict(), config.training_dir + "/model_{}.pt".format(config.name))
 
         accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
