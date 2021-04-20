@@ -11,6 +11,7 @@ import pprint
 
 from models.models import ARC_Classifier
 from dataloaders.irl_dataset import IRLDataset
+from training_utils.arg_utils import get_args, setup_training_output
 
 
 null_callback = lambda *args, **kwargs: None
@@ -60,8 +61,8 @@ def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
-    data = IRLDataset(config, slice_end=800)
-    train_size = int(len(data)*.7)
+    data = IRLDataset(config.data)
+    train_size = int(len(data)*config.train_split)
     test_size = len(data) - train_size
     train, test = random_split(data, [train_size, test_size])
     print(f'Train size: {len(train)}, Test size: {len(test)}')
@@ -74,8 +75,6 @@ def main(config):
         data.num_features,
         hidden_sizes=[config.model.hidden_size],
     )
-    if config.device == 'gpu':
-        model.device = torch.device("cuda")
     
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
@@ -93,7 +92,7 @@ def main(config):
     print('Finished Training')
 
 def test(config):
-    data = IRLDataset(config, slice_end=800)
+    data = IRLDataset(config)
     eq = lambda a, b: torch.all(a.eq(b))
     # y should be [2, 0, 1] meaning we go [A->C, B->A, C->B]
     assert eq(data.y, torch.LongTensor([2, 0, 1]))
@@ -104,45 +103,6 @@ def test(config):
         [0,0,2/3,1,1/3,0],
         [1/3,1,0,0,2/3,1],
         [2/3,0,1/3,1,0,0]]))
-
-
-def get_args():
-    parser = argparse.ArgumentParser(description='Training code')
-    parser.add_argument('--config_path', default='./configs/config.yaml', type=str, help='yaml config file')
-    args = parser.parse_args()
-
-    config = edict(yaml.safe_load(open(args.config_path, 'r')))
-
-    config.route_path = os.path.join(config.base_path, config.route_filename)
-    config.sequence_path = os.path.join(config.base_path, config.sequence_filename)
-    config.travel_time_path = os.path.join(config.base_path, config.travel_times_filename)
-    config.package_path = os.path.join(config.base_path, config.package_data_filename)
-
-    return config
-
-def setup_training_output(config):
-    # Making model weights directory
-    training_dir = os.path.join(config.base_path, "trained_models/" + config.name + '/')
-    if not os.path.exists(training_dir):
-        os.makedirs(training_dir)
-    config.training_dir = training_dir
-
-    # Making tensorboard directory
-    tensorboard_dir = os.path.join(config.base_path, "runs/" + config.name + '/')
-    if not os.path.exists(tensorboard_dir):
-        os.makedirs(tensorboard_dir)
-    config.tensorboard_dir =  tensorboard_dir
-
-    def edict2dict(edict_obj):
-        dict_obj = {}
-        for key, vals in edict_obj.items():
-            if isinstance(vals, edict):
-                dict_obj[key] = edict2dict(vals)
-            else:
-                dict_obj[key] = vals
-        return dict_obj
-    
-    yaml.safe_dump(edict2dict(config), open(training_dir + '/config.yml', 'w'))
 
 
 if __name__ == '__main__':

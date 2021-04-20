@@ -72,13 +72,13 @@ def get_x_matrix(route_features, link_features, route_lengths, max_route_len) ->
     return x
 
 class IRLDataset(Dataset):
-    def __init__(self, config, slice_begin=None, slice_end=None):
-        route_data = RouteData.from_file(config.route_path)
-        sequence_data = SequenceData.from_file(config.sequence_path)
-        travel_time_data = TravelTimeData.from_file(config.travel_time_path)
+    def __init__(self, data_config):
+        route_data = RouteData.from_file(data_config.route_path)
+        sequence_data = SequenceData.from_file(data_config.sequence_path)
+        travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
 
         route_ids = route_data.get_high_score_ids()
-        route_ids = route_ids[slice(slice_begin, slice_end)]
+        route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
         print(f'Using data from {len(route_ids)} routes.')
         route_lengths = [len(sequence_data[route]) for route in route_ids]
         self.max_route_len = max(route_lengths)

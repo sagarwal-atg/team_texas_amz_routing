@@ -2,8 +2,8 @@
 argparse
 easydict
 folium
-python-ipython
 pyyaml
+pylint
 sklearn
 torch
 torchvision
