@@ -1,61 +1,99 @@
 import os
+import argparse
 import torch
-from models.models import ARC_Classifier
-from dataloaders.irl_dataset import IRLDataset
+import datetime
 from torch.utils.data import DataLoader, random_split
+from tensorboardX import SummaryWriter
 import numpy as np
 from easydict import EasyDict as edict
 import yaml
-import argparse
+import pprint
+
+from models.models import ARC_Classifier
+from dataloaders.irl_dataset import IRLDataset
+
 
 null_callback = lambda *args, **kwargs: None
 
 
-def fit(model, dataloader, epochs=1, verbose=0,
+def fit(model, dataloader, writer, optimizer, config, verbose=0,
         cb_after_batch_update=null_callback, cb_after_epoch=null_callback):
 
-    for epoch in range(epochs):  # loop over the dataset multiple times
+    train_loss_idx = 0
+    test_loss_idx = 0
+    best_loss = np.inf
+
+    for epoch in range(config.num_train_epochs):  # loop over the dataset multiple times
         epoch_loss = []
         for data in dataloader:
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-            loss = model.train_on_batch(inputs, labels)
+            
+            optimizer.zero_grad()
+
+            # forward + backward + optimize
+            outputs = model(inputs)
+            loss = model.get_loss(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
             epoch_loss.append(loss.detach())
             cb_after_batch_update(loss)
-        cb_after_epoch(epoch, model)
+            writer.add_scalar('Train/loss', loss.item(), train_loss_idx)
+            train_loss_idx += 1
+
+        cb_after_epoch(epoch, model, test_loss_idx)
+        test_loss_idx += 1
+
+        mean_loss = np.mean(epoch_loss)
+        if best_loss > mean_loss:
+            best_loss = mean_loss
+            torch.save(model.state_dict(), config.training_dir + "model_{}.pt".format(config.name, epoch))
+
         if verbose > 0:
             accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
-            print(f'Epoch: {epoch}, Loss {np.mean(epoch_loss):.4f}, Accuracy: {accuracy:.2f}')
+            writer.add_scalar('Train/Accuracy', accuracy, train_loss_idx)
+            print(f'Epoch: {epoch}, Loss {mean_loss:.4f}, Accuracy: {accuracy:.2f}')
 
 
-def main(paths, batch_size, epochs, learning_rate):
-    data = IRLDataset(paths, slice_end=800)
+def main(config):
+    torch.manual_seed(config.seed)
+    np.random.seed(config.seed)
+
+    data = IRLDataset(config, slice_end=800)
     train_size = int(len(data)*.7)
     test_size = len(data) - train_size
     train, test = random_split(data, [train_size, test_size])
     print(f'Train size: {len(train)}, Test size: {len(test)}')
-    train_loader = DataLoader(train, batch_size, shuffle=True)
+    train_loader = DataLoader(train, config.batch_size, shuffle=True)
+    
+    writer = SummaryWriter(logdir=config.tensorboard_dir + '{}_{}_Model'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), config.name))
 
-    def test_cb(epoch, model):
+    model = ARC_Classifier(
+        data.max_route_len,
+        data.num_features,
+        hidden_sizes=[config.model.hidden_size],
+    )
+    if config.device == 'gpu':
+        model.device = torch.device("cuda")
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+
+    def test_cb(epoch, model, loss_idx):
         inputs, labels = test[:]
         with torch.no_grad():
             outputs = model(inputs)
         accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
         loss = model.get_loss(outputs, labels)
+        writer.add_scalar('Test/loss', loss, loss_idx)
+        writer.add_scalar('Test/accuracy', accuracy, loss_idx)
         print(f'Epoch: {epoch}, Test Loss {loss:.4f}, Test Accuracy: {accuracy:.2f}')
 
-    model = ARC_Classifier(
-        data.max_route_len,
-        data.num_features,
-        hidden_sizes=[256],
-        lr=learning_rate,
-    )
-
-    fit(model, train_loader, epochs, verbose=1, cb_after_epoch=test_cb)
+    fit(model, train_loader, writer, optimizer, config, verbose=1, cb_after_epoch=test_cb)
     print('Finished Training')
 
-def test(paths):
-    data = IRLDataset(paths, slice_end=800)
+def test(config):
+    data = IRLDataset(config, slice_end=800)
     eq = lambda a, b: torch.all(a.eq(b))
     # y should be [2, 0, 1] meaning we go [A->C, B->A, C->B]
     assert eq(data.y, torch.LongTensor([2, 0, 1]))
@@ -68,27 +106,47 @@ def test(paths):
         [2/3,0,1/3,1,0,0]]))
 
 
-def get_args(config_path='./configs/config.yaml'):
+def get_args():
     parser = argparse.ArgumentParser(description='Training code')
-    config = edict(yaml.safe_load(open(config_path, 'r')))
-
-    parser.add_argument('--batchsize', default=config.batchsize, type=int)
-    parser.add_argument('--epochs', default=config.num_train_epochs, type=int)
-    parser.add_argument('--datapath', default=config.base_path, type=str, help='base path to the data')
-    parser.add_argument('--lr', default=config.learning_rate, type=str)
-
+    parser.add_argument('--config_path', default='./configs/config.yaml', type=str, help='yaml config file')
     args = parser.parse_args()
 
-    paths = edict(
-        route = os.path.join(args.datapath, config.route_filename),
-        sequence = os.path.join(args.datapath, config.sequence_filename),
-        travel_time = os.path.join(args.datapath, config.travel_times_filename),
-        packages = os.path.join(args.datapath, config.package_data_filename),
-    )
+    config = edict(yaml.safe_load(open(args.config_path, 'r')))
 
-    return paths, args.batchsize, args.epochs, args.lr
+    config.route_path = os.path.join(config.base_path, config.route_filename)
+    config.sequence_path = os.path.join(config.base_path, config.sequence_filename)
+    config.travel_time_path = os.path.join(config.base_path, config.travel_times_filename)
+    config.package_path = os.path.join(config.base_path, config.package_data_filename)
+
+    return config
+
+def setup_training_output(config):
+    # Making model weights directory
+    training_dir = os.path.join(config.base_path, "trained_models/" + config.name + '/')
+    if not os.path.exists(training_dir):
+        os.makedirs(training_dir)
+    config.training_dir = training_dir
+
+    # Making tensorboard directory
+    tensorboard_dir = os.path.join(config.base_path, "runs/" + config.name + '/')
+    if not os.path.exists(tensorboard_dir):
+        os.makedirs(tensorboard_dir)
+    config.tensorboard_dir =  tensorboard_dir
+
+    def edict2dict(edict_obj):
+        dict_obj = {}
+        for key, vals in edict_obj.items():
+            if isinstance(vals, edict):
+                dict_obj[key] = edict2dict(vals)
+            else:
+                dict_obj[key] = vals
+        return dict_obj
+    
+    yaml.safe_dump(edict2dict(config), open(training_dir + '/config.yml', 'w'))
 
 
 if __name__ == '__main__':
-    paths, batch_size, epochs, lr = get_args()
-    main(paths, batch_size, epochs, lr)
+    config = get_args()
+    pprint.pprint(config)
+    setup_training_output(config)
+    main(config)
