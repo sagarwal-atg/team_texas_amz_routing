@@ -9,10 +9,9 @@ import yaml
 import argparse
 
 null_callback = lambda *args, **kwargs: None
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def fit(model, dataloader, epochs=1, verbose=0,
+def fit(model, dataloader, epochs, device, verbose=0,
         cb_after_batch_update=null_callback, cb_after_epoch=null_callback):
 
     for epoch in range(epochs):  # loop over the dataset multiple times
@@ -30,7 +29,7 @@ def fit(model, dataloader, epochs=1, verbose=0,
             print(f'Epoch: {epoch}, Loss {np.mean(epoch_loss):.4f}, Accuracy: {accuracy:.2f}')
 
 
-def main(paths, batch_size, epochs, learning_rate):
+def main(paths, batch_size, epochs, learning_rate, device):
     data = IRLDataset(paths, slice_end=800)
     train_size = int(len(data)*.7)
     test_size = len(data) - train_size
@@ -55,7 +54,7 @@ def main(paths, batch_size, epochs, learning_rate):
         lr=learning_rate,
     ).to(device)
 
-    fit(model, train_loader, epochs, verbose=1, cb_after_epoch=test_cb)
+    fit(model, train_loader, epochs, device, verbose=1, cb_after_epoch=test_cb)
     print('Finished Training')
 
 def test(paths):
@@ -73,7 +72,6 @@ def test(paths):
 
 
 def get_args(config_path='./configs/config.yaml'):
-    global device
     parser = argparse.ArgumentParser(description='Training code')
     config = edict(yaml.safe_load(open(config_path, 'r')))
 
@@ -81,6 +79,7 @@ def get_args(config_path='./configs/config.yaml'):
     parser.add_argument('--epochs', default=config.num_train_epochs, type=int)
     parser.add_argument('--datapath', default=config.base_path, type=str, help='base path to the data')
     parser.add_argument('--lr', default=config.learning_rate, type=str)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     parser.add_argument('--device', default=device, type=str, help='cpu or gpu')
 
     args = parser.parse_args()
@@ -93,9 +92,9 @@ def get_args(config_path='./configs/config.yaml'):
         packages = os.path.join(args.datapath, config.package_data_filename),
     )
 
-    return paths, args.batchsize, args.epochs, args.lr
+    return paths, args.batchsize, args.epochs, args.lr, args.device
 
 
 if __name__ == '__main__':
-    paths, batch_size, epochs, lr = get_args()
-    main(paths, batch_size, epochs, lr)
+    paths, batch_size, epochs, lr, device = get_args()
+    main(paths, batch_size, epochs, lr, device)
