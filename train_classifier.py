@@ -9,6 +9,7 @@ import yaml
 import argparse
 
 null_callback = lambda *args, **kwargs: None
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def fit(model, dataloader, epochs=1, verbose=0,
@@ -19,8 +20,9 @@ def fit(model, dataloader, epochs=1, verbose=0,
         for data in dataloader:
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
+            inputs, labels = inputs.to(device), labels.to(device)
             loss = model.train_on_batch(inputs, labels)
-            epoch_loss.append(loss.detach())
+            epoch_loss.append(loss.cpu().detach())
             cb_after_batch_update(loss)
         cb_after_epoch(epoch, model)
         if verbose > 0:
@@ -38,10 +40,12 @@ def main(paths, batch_size, epochs, learning_rate):
 
     def test_cb(epoch, model):
         inputs, labels = test[:]
+        inputs, labels = inputs.to(device), labels.to(device)
+
         with torch.no_grad():
             outputs = model(inputs)
         accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
-        loss = model.get_loss(outputs, labels)
+        loss = model.get_loss(outputs, labels).cpu()
         print(f'Epoch: {epoch}, Test Loss {loss:.4f}, Test Accuracy: {accuracy:.2f}')
 
     model = ARC_Classifier(
@@ -49,7 +53,7 @@ def main(paths, batch_size, epochs, learning_rate):
         data.num_features,
         hidden_sizes=[256],
         lr=learning_rate,
-    )
+    ).to(device)
 
     fit(model, train_loader, epochs, verbose=1, cb_after_epoch=test_cb)
     print('Finished Training')
@@ -69,6 +73,7 @@ def test(paths):
 
 
 def get_args(config_path='./configs/config.yaml'):
+    global device
     parser = argparse.ArgumentParser(description='Training code')
     config = edict(yaml.safe_load(open(config_path, 'r')))
 
@@ -76,8 +81,10 @@ def get_args(config_path='./configs/config.yaml'):
     parser.add_argument('--epochs', default=config.num_train_epochs, type=int)
     parser.add_argument('--datapath', default=config.base_path, type=str, help='base path to the data')
     parser.add_argument('--lr', default=config.learning_rate, type=str)
+    parser.add_argument('--device', default=device, type=str, help='cpu or gpu')
 
     args = parser.parse_args()
+    device = args.device
 
     paths = edict(
         route = os.path.join(args.datapath, config.route_filename),
