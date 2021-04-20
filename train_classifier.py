@@ -49,11 +49,12 @@ def fit(model, dataloader, writer, optimizer, config, verbose=0,
         mean_loss = np.mean(epoch_loss)
         if best_loss > mean_loss:
             best_loss = mean_loss
-            torch.save(model.state_dict(), config.training_dir + "model_{}.pt".format(config.name, epoch))
+            torch.save(model.state_dict(), config.training_dir + "model_{}.pt".format(config.name))
+
+        accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
+        writer.add_scalar('Train/Accuracy', accuracy, train_loss_idx)
 
         if verbose > 0:
-            accuracy = (model(inputs).argmax(1) == labels).float().mean().item()
-            writer.add_scalar('Train/Accuracy', accuracy, train_loss_idx)
             print(f'Epoch: {epoch}, Loss {mean_loss:.4f}, Accuracy: {accuracy:.2f}')
 
 

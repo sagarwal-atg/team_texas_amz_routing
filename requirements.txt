@@ -3,7 +3,6 @@ argparse
 easydict
 folium
 pyyaml
-pylint
 sklearn
 torch
 torchvision
