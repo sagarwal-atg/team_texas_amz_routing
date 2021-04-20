@@ -5,12 +5,12 @@ seed: 0
 train_split: 0.7  # Training data is 70% and test data is 30%
 
 
-base_path: '../'  # base path where model weights , tensorboard will be saved
+base_path: '..'  # base path where model weights , tensorboard will be saved
 training_dir: 'trained_models'  # base_path + training_dir
 tensorboard_dir: 'runs' # base_path + tensorboard_dir
 
 data:
-    base_path: 'data/model_build_inputs/'   # base_path + data.base_path (this path) is where all data is saved
+    base_path: 'data/model_build_inputs'   # base_path + data.base_path (this path) is where all data is saved
     # base_path + data.base_path + data_type_filename
     route_filename: 'route_data.json'
     sequence_filename: 'actual_sequences.json'
