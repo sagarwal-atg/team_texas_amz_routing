@@ -18,7 +18,7 @@ Add "virtualenv" instructions (TODO).
 
 ## Training the model
 
-`python3 team_texas_amz_routing/irl_train.py --config team_texas_amz_routing/configs/config.yaml`
+`python3 model_training/train_classifier.py --config model_training/configs/small_test_config.yaml`
 
 
 ## Eval the model

@@ -2,7 +2,6 @@
 argparse
 easydict
 folium
-python-ipython
 pyyaml
 sklearn
 torch

@@ -1,20 +1,29 @@
 # Change experiment name
-name: 'linear_irl'
+name: 'arc_classifier'
 
-base_path: '../my-app/data/model_build_inputs'
-route_filename: 'route_data.json'
-sequence_filename: 'actual_sequences.json'
-travel_times_filename: 'travel_times.json'
-package_data_filename: 'package_data.json'
+seed: 0
+train_split: 0.7  # Training data is 70% and test data is 30%
 
-dataset:
-    link_features_size: 1
-    route_features_size: 3
 
-batchsize: 4
-datasize: 100
-num_train_epochs: 1000
-max_route_len: 210
+base_path: '..'  # base path where model weights , tensorboard will be saved
+training_dir: 'trained_models'  # base_path + training_dir
+tensorboard_dir: 'runs' # base_path + tensorboard_dir
+
+data:
+    base_path: 'data/model_build_inputs'   # base_path + data.base_path (this path) is where all data is saved
+    # base_path + data.base_path + data_type_filename
+    route_filename: 'route_data.json'
+    sequence_filename: 'actual_sequences.json'
+    travel_times_filename: 'travel_times.json'
+    package_data_filename: 'package_data.json'
+    slice_begin: 0
+    slice_end: 800
+
+model:
+    hidden_size: 256
+
+batch_size: 16
+num_train_epochs: 100
 
 # Optimizer
 learning_rate: 0.001
