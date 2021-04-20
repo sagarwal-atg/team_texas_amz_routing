@@ -53,11 +53,23 @@ def right_pad2d(m, width, constant=0):
     m2[:,:m.shape[1]] = m
     return m2
 
-def right_pad3d(m, width, constant=0):
-    assert width >= m.shape[2]
-    m2 = np.ones((m.shape[0], m.shape[1], width)) * constant
-    m2[:,:,:m.shape[2]] = m
-    return m2
+def get_x_matrix(route_features, link_features, route_lengths, max_route_len) -> FloatMatrix:
+    """
+        Returns a matrix where the ith row is the features FROM a stop in a route and the 
+            columns j to j+n are the n features TO the jth stop
+            (where n = num_link_features + num_route_features)
+    """
+    # shape(route_data)=[n_routes, num_route_features]
+    route_data = np.repeat(route_features, route_lengths, axis=0)
+    # shape(route_date)=[sum(route_lengths), num_route_features]
+    route_data = np.tile(route_data[np.newaxis], [1,1,max_route_len])
+    # shape(route_data)=[num_route_features, sum(route_lengths), max_route_len]
+    x = concat([link_features]) # skipping route_data for now
+    # shape(x)=[num_features, sum(route_lengths), max_route_len]
+    x = np.transpose(x, (1,2,0))
+    x = x.reshape(x.shape[0], x.shape[1] * x.shape[2])
+    # shape(x)=[sum(route_lengths), max_route_len * num_features]
+    return x
 
 class IRLDataset(Dataset):
     def __init__(self, paths, slice_begin=None, slice_end=None):
@@ -74,7 +86,7 @@ class IRLDataset(Dataset):
         def get_route_features(route_id):
             veh_cap = route_data[route_id]._data.executor_capacity_cm3
             # add any other functions here for more route features
-            return np.array([veh_cap])
+            return np.array([veh_cap]).reshape(1, 1) # remove reshape once added more features
 
         def get_link_features(route_id):
             """
@@ -101,18 +113,9 @@ class IRLDataset(Dataset):
         lables = concat([
             sequence_data[route_id].get_route_order() for route_id in route_ids])
 
-        # shape(route_data)=[n_routes, num_route_features]
-        route_data = np.repeat(route_features, route_lengths, axis=0)
-        # shape(route_date)=[sum(route_lengths), num_route_features]
-        route_data = np.tile(route_data[np.newaxis,:,np.newaxis], [1,1,self.max_route_len])
-        # shape(route_date)=[max_route_len, sum(route_lengths), num_route_features]
-        x = concat([link_features]) # skipping route_data for now
-        self.num_features = x.shape[0]
-        # shape(x)=[num_features, sum(route_lengths), max_route_len]
-        x = np.transpose(x, (1,2,0))
-        x = x.reshape(x.shape[0], x.shape[1] * x.shape[2])
-        # shape(x)=[sum(route_lengths), max_route_len * num_features]
+        x = get_x_matrix(route_features, link_features, route_lengths, self.max_route_len)
 
+        self.num_features = x.shape[1] // self.max_route_len # is same as link_features.shape[0] + route_features.shape[1]
         self.x = torch.FloatTensor(x)
         self.y = torch.LongTensor(lables)
 
