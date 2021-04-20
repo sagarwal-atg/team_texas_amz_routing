@@ -15,7 +15,6 @@ from tensorboardX import SummaryWriter
 from IPython import embed
 
 
-
 parser = argparse.ArgumentParser(description='Training code')
 parser.add_argument('--config', default='config.yaml', type=str, help='yaml config file')
 args = parser.parse_args()
@@ -28,10 +27,6 @@ print('Loading Data')
 if not os.path.exists(config.base_path + "trained_models/" + config.name):
     os.makedirs(config.base_path + "trained_models/" + config.name)
 
-route_filepath = config.base_path + config.route_filepath
-actual_filepath = config.base_path + config.actual_filepath
-travel_times_filepath = config.base_path + config.travel_times_filepath
-package_data_filepath = config.base_path + config.package_data_filepath
 irl_dataset = IRLDataset(config)
 train_dataloader = DataLoader(irl_dataset, batch_size=config.batchsize, shuffle=True)
 print('Loaded Data')
