@@ -3,13 +3,13 @@ from ortools.constraint_solver import pywrapcp
 from IPython import embed
 
 
-def compute_tsp_solution(distance_matrix, stops_dict):
+def compute_tsp_solution(distance_matrix, stops_dict, depot=0):
     def create_data_model():
         """Stores the data for the problem."""
         data = {}
         data['distance_matrix'] = distance_matrix
         data['num_vehicles'] = 1
-        data['depot'] = 0
+        data['depot'] = depot
         return data
 
 

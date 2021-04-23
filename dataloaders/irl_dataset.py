@@ -79,8 +79,11 @@ class IRLDataset(Dataset):
 
         route_ids = route_data.get_high_score_ids()
         route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
+        self.route_ids = route_ids
+
         print(f'Using data from {len(route_ids)} routes.')
         route_lengths = [len(sequence_data[route]) for route in route_ids]
+        self.route_lengths = route_lengths
         self.max_route_len = max(route_lengths)
 
         def get_route_features(route_id):
