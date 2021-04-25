@@ -10,7 +10,7 @@ import yaml
 import pprint
 
 from models.models import ARC_Classifier
-from dataloaders.irl_dataset import IRLDataset
+from dataloaders.irl_dataset import ClassificationDataset
 from training_utils.arg_utils import get_args, setup_training_output
 
 
@@ -62,7 +62,7 @@ def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
-    data = IRLDataset(config.data)
+    data = ClassificationDataset(config.data)
     train_size = int(len(data)*config.train_split)
     test_size = len(data) - train_size
     train, test = random_split(data, [train_size, test_size])

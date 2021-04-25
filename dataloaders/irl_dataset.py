@@ -1,11 +1,13 @@
+from os import link
 from typing import List, Any
 import numpy as np
 from numpy import concatenate as concat
 from nptyping import NDArray
 import torch
 from torch.utils.data import Dataset
+from IPython import embed
 
-from .data import RouteData, SequenceData, TravelTimeData, RouteData, RouteDatum, TravelTimeDatum
+from .data import RouteData, SequenceData, TravelTimeData, RouteData, RouteDatum, TravelTimeDatum, PackageData, PackageDatum
 
 IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
@@ -24,7 +26,7 @@ def extract_travel_times(travel_times: TravelTimeDatum, stop_ids: List[str]) -> 
         stop_ids[i] -> all other stops is 1.
     """
     times = travel_times.as_matrix(stop_ids)
-    times /= times.sum(axis=1)[:,np.newaxis]
+    # times /= times.sum(axis=1)[:,np.newaxis]
     return times
 
 def extract_zone_crossings(route_data: RouteDatum, stop_ids: List[str]) -> BoolMatrix:
@@ -71,7 +73,8 @@ def get_x_matrix(route_features, link_features, route_lengths, max_route_len) ->
     # shape(x)=[sum(route_lengths), max_route_len * num_features]
     return x
 
-class IRLDataset(Dataset):
+
+class ClassificationDataset(Dataset):
     def __init__(self, data_config):
         route_data = RouteData.from_file(data_config.route_path)
         sequence_data = SequenceData.from_file(data_config.sequence_path)
@@ -127,3 +130,64 @@ class IRLDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.x[idx], self.y[idx]
+
+
+class IRLDataset(Dataset):
+    def __init__(self, data_config):
+        route_data = RouteData.from_file(data_config.route_path)
+        sequence_data = SequenceData.from_file(data_config.sequence_path)
+        travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
+        package_data = PackageData.from_file(data_config.package_path)
+
+        route_ids = route_data.get_high_score_ids()
+        route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
+        self.route_ids = route_ids
+
+        print(f'Using data from {len(route_ids)} routes.')
+        route_lengths = [len(sequence_data[route]) for route in route_ids]
+        self.route_lengths = route_lengths
+        self.max_route_len = max(route_lengths)
+
+        def get_route_features(route_id):
+            veh_cap = route_data[route_id]._data.executor_capacity_cm3
+            # add any other functions here for more route features
+            return np.array([veh_cap]).reshape(1, 1) # remove reshape once added more features
+
+        def get_link_features(route_id):
+            """
+            Returns: a matrix of shape [route_len, max_route_len, n] where n is the number of features
+            """
+            stop_ids = sequence_data[route_id].get_stop_ids()
+
+            times = extract_travel_times(travel_time_data[route_id], stop_ids)
+            # times = right_pad2d(times, self.max_route_len, 0)
+
+            zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
+            # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
+
+            # add any other functions here for more link features.
+            return np.array([times, zone_crossings])
+        
+        def get_time_constraints(route_id):
+            """
+            Returns: a list of tuples [start, end]. Start and end time of the constraint. None if passed no constraints.
+            """
+            stop_ids = sequence_data[route_id].get_stop_ids()
+            route_start = route_data[route_id].get_start_time()
+            return package_data[route_id].find_time_windows(route_start, stop_ids)
+
+        self.x = []
+        
+        for route_id in route_ids:
+            link_features = get_link_features(route_id)
+            route_features = get_route_features(route_id)
+            time_constraints = get_time_constraints(route_id)
+            label = sequence_data[route_id].get_route_order()
+            self.x.append((link_features.T, route_features, time_constraints, label))
+
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, idx):
+        return self.x[idx]

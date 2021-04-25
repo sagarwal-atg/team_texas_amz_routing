@@ -3,7 +3,7 @@ from ortools.constraint_solver import pywrapcp
 from IPython import embed
 
 
-def compute_tsp_solution(distance_matrix, stops_dict, depot=0):
+def compute_tsp_solution(distance_matrix, depot=0):
     def create_data_model():
         """Stores the data for the problem."""
         data = {}
@@ -17,18 +17,14 @@ def compute_tsp_solution(distance_matrix, stops_dict, depot=0):
 
         """Prints solution on console."""
         index = routing.Start(0)
-        route_distance = 0
 
         solution_collector = []
 
         while not routing.IsEnd(index):
             temp = manager.IndexToNode(index)
             solution_collector.append(temp)
-            previous_index = index
-            index = solution.Value(routing.NextVar(index))
-            route_distance += routing.GetArcCostForVehicle(previous_index, index, 0)
 
-        return solution_collector, route_distance
+        return solution_collector
 
     """Entry point of the program."""
     # Instantiate the data problem.
@@ -63,8 +59,8 @@ def compute_tsp_solution(distance_matrix, stops_dict, depot=0):
     solution = routing.SolveWithParameters(search_parameters)
     solution_collector = get_tsp_solution(manager, routing, solution)
 
-    tsp = []
-    for i in solution_collector[0]:
-        tsp.append(list(stops_dict.keys())[i])
+    # tsp = []
+    # for i in solution_collector[0]:
+    #     tsp.append(list(stops_dict.keys())[i])
     
-    return tsp
+    return solution_collector

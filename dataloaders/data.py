@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import json
 from typing import Dict, List, Sequence, Union
 import numpy as np
+from datetime import time, timedelta, datetime
+
 from munch import Munch # used to give dot accessing to dict
+
 
 class RouteDatum:
     SCORE = SimpleNamespace(LOW='Low', MEDIUM='Medium', HIGH='High')
@@ -29,6 +32,9 @@ class RouteDatum:
 
     def is_high_score(self):
         return self.get_score() == self.SCORE.HIGH
+    
+    def get_start_time(self):
+        return datetime.fromisoformat(self._data.date_YYYY_MM_DD + ' ' + self._data.departure_time_utc)
 
 class SequenceDatum:
     """
@@ -86,6 +92,38 @@ class TravelTimeDatum:
         return times
 
 
+class PackageDatum:
+    def __init__(self, data) -> None:
+        self._data = data
+    
+    def find_time_windows(self, route_start, stop_ids):
+        time_windows = []
+        for stop_id in stop_ids:
+            time_windows.append(self.find_time_window_for_stop(route_start, stop_id))
+        return time_windows
+
+    def find_time_window_for_stop(self, route_start, stop_id):
+    
+        """Inputs: Key: route_id
+                   Stop_id: 2 alphabet id for stop"""
+    
+        packages = self._data[stop_id]
+        end_stop = datetime.max
+        start_stop = route_start
+        delta_max = end_stop - start_stop
+        for pid, pinfo in packages.items():
+            if isinstance(pinfo['time_window']['end_time_utc'], str):
+                end = datetime.fromisoformat(pinfo['time_window']['end_time_utc'])
+                start = datetime.fromisoformat(pinfo['time_window']['start_time_utc'])
+                end_stop = min(end, end_stop)
+                start_stop = max(start, start_stop)
+        delta = (end_stop - start_stop)
+        if delta < delta_max:
+            return ((start_stop - route_start).total_seconds(), (end_stop - route_start).total_seconds())
+        else:
+            return (0,28670)
+
+
 class AmazonData:
     def __init__(self, data, constructor: Union[RouteDatum, SequenceDatum]):
         self._data = {route_id: constructor(value) for route_id, value in data.items()}
@@ -110,7 +148,6 @@ class SequenceData(AmazonData):
     def __init__(self, data):
         super().__init__(data, SequenceDatum)
 
-
 class RouteData(AmazonData):
     def __init__(self, data):
         super().__init__(data, RouteDatum)
@@ -121,3 +158,7 @@ class RouteData(AmazonData):
 class TravelTimeData(AmazonData):
     def __init__(self, data):
         super().__init__(data, TravelTimeDatum)
+
+class PackageData(AmazonData):
+    def __init__(self, data):
+        super().__init__(data, PackageDatum)
