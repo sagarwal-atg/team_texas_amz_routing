@@ -65,7 +65,7 @@ def main(config):
 
 
 if __name__ == '__main__':
-    config = get_args()
+    config = get_args(config_path='./configs/irl_config.yaml')
     pprint.pprint(config)
     setup_training_output(config)
     main(config)

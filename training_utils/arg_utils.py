@@ -14,9 +14,9 @@ def edict2dict(edict_obj):
     return dict_obj
 
 
-def get_args():
+def get_args(config_path='./configs/config.yaml'):
     parser = argparse.ArgumentParser(description='Training code')
-    parser.add_argument('--config_path', default='./configs/config.yaml', type=str, help='yaml config file')
+    parser.add_argument('--config_path', default=config_path, type=str, help='yaml config file')
     parser.add_argument('--data_path', default=None, type=str, help='base path to the data')
     args = parser.parse_args()
 
