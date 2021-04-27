@@ -53,7 +53,9 @@ class SequenceDatum:
         data: a dict whose values indicate the order we visited the stops
             ex: {'actual': {'A': 0, 'B': 2, 'C': 1}}
         """
-        self._stops = data['actual']
+        x = data['actual']
+        sorted_data = dict(sorted(x.items(), key=lambda item: item[1]))
+        self._stops = sorted_data
 
     def get_stop_ids(self) -> List[str]:
         """
@@ -72,7 +74,8 @@ class SequenceDatum:
     def get_sorted_route_by_index(self):
         """
         """
-        labels = np.argsort(list(self._stops.values()))
+        # labels = np.argsort(list(self._stops.values()))
+        labels = np.arange(len(self._stops))
         return labels
 
     def get_route_order(self):

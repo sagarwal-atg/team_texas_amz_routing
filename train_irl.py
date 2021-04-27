@@ -13,10 +13,9 @@ from models.models import LinearModel
 from dataloaders.irl_dataset import IRLDataset
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import tsp, constrained_tsp
-from IPython import embed
+# from IPython import embed
 
 
-#%%
 null_callback = lambda *args, **kwargs: None
 
 
@@ -42,9 +41,9 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
 
 
 def fit(model, dataloader, writer, config):
-    theta = np.array([100])
-    lamb = 10
-    learning_rate = 0.001
+    theta = np.array([100.0])
+    lamb = 100.0
+    learning_rate = 0.01
     clock = 0
 
     # loop over the dataset multiple times
@@ -68,9 +67,10 @@ def fit(model, dataloader, writer, config):
 
                 pred_seq = constrained_tsp.constrained_tsp(
                     objective_matrix, travel_times, time_constraints,
-                    depot=label[0], lamb=lamb)
+                    depot=0, lamb=int(lamb))
 
-                # print(i, np.array(pred_seq))
+                print('data {} -- predicted seq: {}'.format(
+                    i, np.array(pred_seq)))
 
                 demo_time_cost, demo_feature_cost = compute_link_cost_seq(
                     travel_times, link_features, label)
@@ -86,10 +86,8 @@ def fit(model, dataloader, writer, config):
                     travel_times, time_constraints, pred_seq)
 
                 # compute gradient
-                grad_lamb = max(demo_tv - pred_tv, 0)
-                grad_theta = np.maximum(
-                    demo_feature_cost - pred_feature_cost,
-                    np.zeros_like(theta))
+                grad_lamb = demo_tv - pred_tv
+                grad_theta =  demo_feature_cost - pred_feature_cost
 
                 # update theta and lambda
                 r = learning_rate / (1 + clock * 0.0005)
@@ -99,7 +97,7 @@ def fit(model, dataloader, writer, config):
                 loss = max(
                     (demo_cost + lamb * demo_tv) -
                     (pred_cost + lamb * pred_tv), 0)
-                embed()
+                # embed()
 
                 route_loss.append(loss)
                 writer.add_scalar(

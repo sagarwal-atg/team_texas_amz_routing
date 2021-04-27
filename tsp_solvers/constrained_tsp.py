@@ -23,12 +23,10 @@ def constrained_tsp(
         solution_collector = []
         for vehicle_id in range(data['num_vehicles']):
             index = routing.Start(vehicle_id)
-            print(index)
             while not routing.IsEnd(index):
                 temp = manager.IndexToNode(index)
                 solution_collector.append(temp)
                 index = solution.Value(routing.NextVar(index))
-                print(index)
         return solution_collector
 
     # Create the routing index manager.
