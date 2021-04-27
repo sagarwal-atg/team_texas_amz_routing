@@ -5,7 +5,7 @@ from typing import Dict, List, Sequence, Union
 import numpy as np
 from datetime import time, timedelta, datetime
 
-from munch import Munch # used to give dot accessing to dict
+from munch import Munch  # used to give dot accessing to dict
 
 
 class RouteDatum:
@@ -14,32 +14,40 @@ class RouteDatum:
     def __init__(self, data):
         self._data = Munch(data)
 
-    def get_stops(self, stop_ids: List[str]=None):
+    def get_stops(self, stop_ids: List[str] = None):
         stops = self._data.stops
         if stop_ids:
             stops = {key: stops[key] for key in stop_ids}
         return stops
 
-    def get_zones(self, stop_ids: List[str]=None) -> Dict[str, str]:
+    def get_zones(self, stop_ids: List[str] = None) -> Dict[str, str]:
         """
         Returns: a map of zone id's for each stop
             ex: {'A': 'zone1', 'B': 'zone2', 'C': 'zone3'}
+            if zone_id is nan, set zone_id to be 'zone_' + stop_id
         """
-        return {key: stop['zone_id'] for key, stop in self.get_stops(stop_ids).items()}
+        zone_d = {}
+        for key, stop in self.get_stops(stop_ids).items():
+            zone_d[key] = stop['zone_id'] if isinstance(
+                stop['zone_id'], str) else 'zone_' + key
+        return zone_d
 
     def get_score(self):
         return self._data.route_score
 
     def is_high_score(self):
         return self.get_score() == self.SCORE.HIGH
-    
+
     def get_start_time(self):
-        return datetime.fromisoformat(self._data.date_YYYY_MM_DD + ' ' + self._data.departure_time_utc)
+        return datetime.fromisoformat(
+            self._data.date_YYYY_MM_DD + ' ' + self._data.departure_time_utc)
+
 
 class SequenceDatum:
     """
     Data about the actual route taken by the driver
     """
+
     def __init__(self, data: Dict[str, Dict[str, int]]):
         """
         data: a dict whose values indicate the order we visited the stops
@@ -61,6 +69,12 @@ class SequenceDatum:
         """
         return sorted(self._stops, key=lambda k: self._stops[k])
 
+    def get_sorted_route_by_index(self):
+        """
+        """
+        labels = np.argsort(list(self._stops.values()))
+        return labels
+
     def get_route_order(self):
         """
         stop_sequence: a dict whose values indicate the order we visited the stops
@@ -70,9 +84,11 @@ class SequenceDatum:
             ex: [2, 0, 1] (meaning that we go from [A->C, B->A, C->B])
         """
         stops_ordered = self._get_actual_order()
-        next_stop = {stop: next_stop for stop, next_stop in zip(np.roll(stops_ordered, 1), stops_ordered)}
+        next_stop = {
+            stop: next_stop for stop, next_stop in zip(
+                np.roll(stops_ordered, 1), stops_ordered)}
         stop_idx = {k: i for i, k in enumerate(self._stops)}
-        labels = [stop_idx[next_stop[stop]] for stop in stop_idx.keys()] 
+        labels = [stop_idx[next_stop[stop]] for stop in stop_idx.keys()]
         return labels
 
     def __len__(self):
@@ -95,38 +111,57 @@ class TravelTimeDatum:
 class PackageDatum:
     def __init__(self, data) -> None:
         self._data = data
-    
+
+    def find_service_times(self, stop_ids):
+        time_windows = []
+        for stop_id in stop_ids:
+            time_windows.append(
+                self.find_service_time_for_stop(stop_id))
+        return time_windows
+
+    def find_service_time_for_stop(self, stop_id):
+        packages = self._data[stop_id]
+        t = 0
+        for p, pinfo in packages.items():
+            t = t + pinfo['planned_service_time_seconds']
+        return t
+
     def find_time_windows(self, route_start, stop_ids):
         time_windows = []
         for stop_id in stop_ids:
-            time_windows.append(self.find_time_window_for_stop(route_start, stop_id))
+            time_windows.append(
+                self.find_time_window_for_stop(route_start, stop_id))
         return time_windows
 
     def find_time_window_for_stop(self, route_start, stop_id):
-    
         """Inputs: Key: route_id
                    Stop_id: 2 alphabet id for stop"""
-    
+
         packages = self._data[stop_id]
         end_stop = datetime.max
         start_stop = route_start
         delta_max = end_stop - start_stop
         for pid, pinfo in packages.items():
             if isinstance(pinfo['time_window']['end_time_utc'], str):
-                end = datetime.fromisoformat(pinfo['time_window']['end_time_utc'])
-                start = datetime.fromisoformat(pinfo['time_window']['start_time_utc'])
+                end = datetime.fromisoformat(
+                    pinfo['time_window']['end_time_utc'])
+                start = datetime.fromisoformat(
+                    pinfo['time_window']['start_time_utc'])
                 end_stop = min(end, end_stop)
                 start_stop = max(start, start_stop)
         delta = (end_stop - start_stop)
         if delta < delta_max:
-            return ((start_stop - route_start).total_seconds(), (end_stop - route_start).total_seconds())
+            return (
+                int((start_stop - route_start).total_seconds()),
+                int((end_stop - route_start).total_seconds()))
         else:
-            return (0,28670)
+            return (0, 57600)
 
 
 class AmazonData:
     def __init__(self, data, constructor: Union[RouteDatum, SequenceDatum]):
-        self._data = {route_id: constructor(value) for route_id, value in data.items()}
+        self._data = {
+            route_id: constructor(value) for route_id, value in data.items()}
 
     @classmethod
     def from_file(cls, filepath: str):
@@ -148,16 +183,21 @@ class SequenceData(AmazonData):
     def __init__(self, data):
         super().__init__(data, SequenceDatum)
 
+
 class RouteData(AmazonData):
     def __init__(self, data):
         super().__init__(data, RouteDatum)
 
     def get_high_score_ids(self):
-        return [route_id for route_id, route in self._data.items() if route.is_high_score()]
+        res = [route_id for route_id, route in self._data.items()
+               if route.is_high_score()]
+        return res
+
 
 class TravelTimeData(AmazonData):
     def __init__(self, data):
         super().__init__(data, TravelTimeDatum)
+
 
 class PackageData(AmazonData):
     def __init__(self, data):

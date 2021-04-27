@@ -15,7 +15,7 @@ BoolMatrix = NDArray[(Any, Any), np.bool]
 
 
 ###################################
-# Feature Extractors - Begin 
+# Feature Extractors - Begin
 ###################################
 def extract_travel_times(travel_times: TravelTimeDatum, stop_ids: List[str]) -> FloatMatrix:
     """
@@ -36,28 +36,32 @@ def extract_zone_crossings(route_data: RouteDatum, stop_ids: List[str]) -> BoolM
     """
     # get a map of zone id's for each stop
     stop_zones = route_data.get_zones(stop_ids)
-    zone_crossing = lambda stop1, stop2: stop_zones[stop1] != stop_zones[stop2]
+
     # get a matrix of zone crossings (note: it should be symmetric)
-    zone_crossings = np.zeros((len(stop_ids), len(stop_ids)))
-    for i, stop1 in enumerate(stop_ids):
-        for j, stop2 in enumerate(stop_ids):
-            zone_crossings[i, j] = zone_crossing(stop1, stop2)
+    zones = list(stop_zones.values())
+    x, y = np.unique(np.array(zones), return_inverse=True)
+    zone_crossings = y[:, None] != y
+    # zone_crossing = lambda stop1, stop2: stop_zones[stop1] != stop_zones[stop2]
+    # zone_crossings = np.zeros((len(stop_ids), len(stop_ids)))
+    # for i, stop1 in enumerate(stop_ids):
+    #     for j, stop2 in enumerate(stop_ids):
+    #         zone_crossings[i, j] = zone_crossing(stop1, stop2)
     return zone_crossings
 
 ###################################
-# Feature Extractors - End 
+# Feature Extractors - End
 ###################################
 
 
 def right_pad2d(m, width, constant=0):
     assert width >= m.shape[1]
     m2 = np.ones((m.shape[0], width)) * constant
-    m2[:,:m.shape[1]] = m
+    m2[:, :m.shape[1]] = m
     return m2
 
 def get_x_matrix(route_features, link_features, route_lengths, max_route_len) -> FloatMatrix:
     """
-        Returns a matrix where the ith row is the features FROM a stop in a route and the 
+        Returns a matrix where the ith row is the features FROM a stop in a route and the
             columns j to j+n are the n features TO the jth stop
             (where n = num_link_features + num_route_features)
     """
@@ -155,19 +159,36 @@ class IRLDataset(Dataset):
 
         def get_link_features(route_id):
             """
-            Returns: a matrix of shape [route_len, max_route_len, n] where n is the number of features
+            Returns: a matrix of shape [n, route_len, route_len] where n is the number of features
             """
             stop_ids = sequence_data[route_id].get_stop_ids()
 
-            times = extract_travel_times(travel_time_data[route_id], stop_ids)
+            # add service time to travel time matrix
+            # times = extract_travel_times(travel_time_data[route_id], stop_ids)
+            # ser_times = package_data.find_service_times(stop_ids)
+            # times += ser_times
             # times = right_pad2d(times, self.max_route_len, 0)
 
             zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
             # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
 
             # add any other functions here for more link features.
-            return np.array([times, zone_crossings])
-        
+            return np.array([zone_crossings])
+
+        def get_travel_time(route_id):
+            """
+            Returns: a matrix of shape [route_len, route_len]
+            """
+            stop_ids = sequence_data[route_id].get_stop_ids()
+
+            # add service time to travel time matrix
+            times = extract_travel_times(travel_time_data[route_id], stop_ids)
+            ser_times = package_data[route_id].find_service_times(stop_ids)
+            times += ser_times
+
+            return times
+
+
         def get_time_constraints(route_id):
             """
             Returns: a list of tuples [start, end]. Start and end time of the constraint. None if passed no constraints.
@@ -177,14 +198,16 @@ class IRLDataset(Dataset):
             return package_data[route_id].find_time_windows(route_start, stop_ids)
 
         self.x = []
-        
+
         for route_id in route_ids:
+            travel_times = get_travel_time(route_id)
             link_features = get_link_features(route_id)
             route_features = get_route_features(route_id)
             time_constraints = get_time_constraints(route_id)
-            label = sequence_data[route_id].get_route_order()
-            self.x.append((link_features.T, route_features, time_constraints, label))
-
+            label = sequence_data[route_id].get_sorted_route_by_index()
+            self.x.append((
+                travel_times, link_features, route_features,
+                time_constraints, label))
 
     def __len__(self):
         return len(self.x)
