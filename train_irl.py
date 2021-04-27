@@ -46,11 +46,14 @@ def fit(model, dataloader, writer, config):
     lamb = 10
     learning_rate = 0.001
     clock = 0
-    for epoch in range(config.num_train_epochs):  # loop over the dataset multiple times
+
+    # loop over the dataset multiple times
+    for epoch in range(config.num_train_epochs):
         for i, data in enumerate(dataloader):
             clock += 1
             route_loss = []
-            travel_times, link_features, route_features, time_constraints, label = data
+            travel_times, link_features, \
+                route_features, time_constraints, label = data
 
             for grad_idx in range(config.num_grad_steps):
 
@@ -60,21 +63,14 @@ def fit(model, dataloader, writer, config):
                 num_link_features, num_stops, _ = link_features.shape
                 temp = link_features.reshape(num_link_features, -1).T
                 temp = temp.dot(theta)
-                objective_matrix = temp.reshape(num_stops, num_stops) + 1 * travel_times
-
-                print(objective_matrix.shape, travel_times.shape, len(time_constraints), len(label))
+                objective_matrix = temp.reshape(num_stops, num_stops) + \
+                    1 * travel_times
 
                 pred_seq = constrained_tsp.constrained_tsp(
                     objective_matrix, travel_times, time_constraints,
                     depot=label[0], lamb=lamb)
 
-                print(i, np.array(pred_seq))
-
-                # pred_seq = tsp.compute_tsp_solution(distance_matrix=travel_time_matrix, depot=label[0])
-
-                # tsp_solution = constrained_tsp.constrained_tsp(travel_time_matrix=travel_time_matrix.detach().numpy(),
-                #                                time_window_list=time_constraints,
-                #                                depot=label[0])
+                # print(i, np.array(pred_seq))
 
                 demo_time_cost, demo_feature_cost = compute_link_cost_seq(
                     travel_times, link_features, label)
@@ -90,26 +86,35 @@ def fit(model, dataloader, writer, config):
                     travel_times, time_constraints, pred_seq)
 
                 # compute gradient
-                grad_lamb = demo_tv - pred_tv
-                grad_theta = demo_feature_cost - pred_feature_cost
+                grad_lamb = max(demo_tv - pred_tv, 0)
+                grad_theta = np.maximum(
+                    demo_feature_cost - pred_feature_cost,
+                    np.zeros_like(theta))
 
                 # update theta and lambda
                 r = learning_rate / (1 + clock * 0.0005)
                 lamb -= grad_lamb * r
                 theta -= grad_theta * r
 
-                loss = (demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv)
+                loss = max(
+                    (demo_cost + lamb * demo_tv) -
+                    (pred_cost + lamb * pred_tv), 0)
                 embed()
 
                 route_loss.append(loss)
-                # writer.add_scalar('Train/route_{}_loss'.format(i), loss, grad_idx)
+                writer.add_scalar(
+                    'Train/route_{}_loss'.format(i), loss, grad_idx)
 
 
 def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     data = IRLDataset(config.data)
-    writer = SummaryWriter(logdir=config.tensorboard_dir + '/{}_{}_Model'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), config.name))
+    writer = SummaryWriter(
+        logdir=config.tensorboard_dir +
+        '/{}_{}_Model'.format(
+            datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+            config.name))
     model = LinearModel(size=2)
     fit(model, data.x, writer, config)
     print('Finished Training')
