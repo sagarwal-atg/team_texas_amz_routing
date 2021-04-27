@@ -5,7 +5,7 @@ import os
 from IPython import embed
 import pprint
 
-from dataloaders.irl_dataset import  IRLDataset
+from dataloaders.irl_dataset import ClassificationDataset
 from dataloaders.dist_matrix_dataset import DistMatrixDataset
 from models.models import ARC_Classifier
 from eval_utils.score import score
@@ -27,7 +27,7 @@ def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
-    data = IRLDataset(config.data)
+    data = ClassificationDataset(config.data)
     test_loader = DataLoader(data, 1, shuffle=False)
     route_ids = data.route_ids
     route_lengths = data.route_lengths
@@ -62,6 +62,7 @@ def main(config):
         tsp_seq.append(tsp_seq[0])
         sorted_gt_seq.append(sorted_gt_seq[0])
         model_seq.append(model_seq[0])
+        embed()
         seq_score = score(sorted_gt_seq, tsp_seq, tt_dicts[int(route_num)])
         model_score = score(sorted_gt_seq, model_seq, tt_dicts[int(route_num)])
         seq_scores.append(seq_score)

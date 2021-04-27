@@ -53,9 +53,10 @@ class SequenceDatum:
         data: a dict whose values indicate the order we visited the stops
             ex: {'actual': {'A': 0, 'B': 2, 'C': 1}}
         """
-        x = data['actual']
-        sorted_data = dict(sorted(x.items(), key=lambda item: item[1]))
-        self._stops = sorted_data
+        # self.tt_dicts = data['actual']
+        self._stops = data['actual']
+        # sorted_data = dict(sorted(self.tt_dicts.items(), key=lambda item: item[1]))
+        # self._stops = sorted_data
 
     def get_stop_ids(self) -> List[str]:
         """
@@ -74,8 +75,8 @@ class SequenceDatum:
     def get_sorted_route_by_index(self):
         """
         """
-        # labels = np.argsort(list(self._stops.values()))
-        labels = np.arange(len(self._stops))
+        labels = np.argsort(list(self._stops.values()))
+        # labels = np.arange(len(self._stops))
         return labels
 
     def get_route_order(self):
@@ -170,6 +171,7 @@ class AmazonData:
     def from_file(cls, filepath: str):
         with open(filepath) as f:
             data = json.load(f)
+        assert data
         return cls(data)
 
     def get_route(self, route_id):

@@ -196,7 +196,16 @@ class IRLDataset(Dataset):
             stop_ids = sequence_data[route_id].get_stop_ids()
             route_start = route_data[route_id].get_start_time()
             return package_data[route_id].find_time_windows(route_start, stop_ids)
+        
 
+        def get_scoring_function_inputs(route_id):
+            """
+            Returns: stop ids and travel time dict
+            """
+            stop_ids = sequence_data[route_id].get_stop_ids()
+            travel_time_dict = travel_time_data[route_id]._data
+            return stop_ids, travel_time_dict
+        
         self.x = []
 
         for route_id in route_ids:
@@ -205,9 +214,14 @@ class IRLDataset(Dataset):
             route_features = get_route_features(route_id)
             time_constraints = get_time_constraints(route_id)
             label = sequence_data[route_id].get_sorted_route_by_index()
-            self.x.append((
-                travel_times, link_features, route_features,
-                time_constraints, label))
+            stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
+            self.x.append((travel_times,
+                           link_features,
+                           route_features,
+                           time_constraints,
+                           stop_ids,
+                           travel_time_dict,
+                           label))
 
     def __len__(self):
         return len(self.x)

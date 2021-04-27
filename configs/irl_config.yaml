@@ -23,4 +23,4 @@ data:
 
 batch_size: 1
 num_train_epochs: 100
-num_grad_steps: 1
+num_grad_steps: 5

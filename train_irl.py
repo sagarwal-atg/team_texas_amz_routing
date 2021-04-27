@@ -13,7 +13,8 @@ from models.models import LinearModel
 from dataloaders.irl_dataset import IRLDataset
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import tsp, constrained_tsp
-# from IPython import embed
+from eval_utils.score import score
+from IPython import embed
 
 
 null_callback = lambda *args, **kwargs: None
@@ -47,30 +48,35 @@ def fit(model, dataloader, writer, config):
     clock = 0
 
     # loop over the dataset multiple times
-    for epoch in range(config.num_train_epochs):
-        for i, data in enumerate(dataloader):
+    for epoch_idx in range(config.num_train_epochs):
+        avg_epoch_score = 0
+
+        all_route_scores = []
+        for idx, data in enumerate(dataloader):
             clock += 1
             route_loss = []
-            travel_times, link_features, \
-                route_features, time_constraints, label = data
+            route_score = []
+            travel_times, link_features, route_features, time_constraints, \
+                stop_ids, travel_time_dict, label = data
+            
+            demo_stop_ids = [stop_ids[j] for j in label ]
+            demo_stop_ids.append(demo_stop_ids[0])
+
+            best_score = np.inf
 
             for grad_idx in range(config.num_grad_steps):
-
-                # travel_time_matrix = model(link_features, route_features)
-                # travel_time_matrix = travel_time_matrix.numpy()
 
                 num_link_features, num_stops, _ = link_features.shape
                 temp = link_features.reshape(num_link_features, -1).T
                 temp = temp.dot(theta)
-                objective_matrix = temp.reshape(num_stops, num_stops) + \
-                    1 * travel_times
+                objective_matrix = temp.reshape(num_stops, num_stops) + 1 * travel_times
 
                 pred_seq = constrained_tsp.constrained_tsp(
                     objective_matrix, travel_times, time_constraints,
-                    depot=0, lamb=int(lamb))
+                    depot=label[0], lamb=int(lamb))
 
-                print('data {} -- predicted seq: {}'.format(
-                    i, np.array(pred_seq)))
+                # print('data {} -- predicted seq: {}'.format(
+                #     i, np.array(pred_seq)))
 
                 demo_time_cost, demo_feature_cost = compute_link_cost_seq(
                     travel_times, link_features, label)
@@ -94,14 +100,28 @@ def fit(model, dataloader, writer, config):
                 lamb -= grad_lamb * r
                 theta -= grad_theta * r
 
-                loss = max(
-                    (demo_cost + lamb * demo_tv) -
-                    (pred_cost + lamb * pred_tv), 0)
-                # embed()
+                loss = max((demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv), 0)
 
+                pred_stop_ids = [stop_ids[j] for j in pred_seq ]
+
+                pred_stop_ids.append(pred_stop_ids[0])
+                seq_score = score(demo_stop_ids, pred_stop_ids, travel_time_dict)
+
+                best_score = seq_score if seq_score < best_score else best_score
+
+                route_score.append(seq_score)
                 route_loss.append(loss)
-                writer.add_scalar(
-                    'Train/route_{}_loss'.format(i), loss, grad_idx)
+
+                # writer.add_scalar('Train/route_{}_loss'.format(i), loss, epoch_idx * config.num_grad_steps + grad_idx)
+                writer.add_scalar('Train/route_{}_score'.format(idx), seq_score, epoch_idx * config.num_grad_steps + grad_idx)
+
+                print("Epoch: {}, Data: {}, Grad Step: {}, Loss: {}, Score: {:02f}".format(epoch_idx, idx, grad_idx, loss, seq_score))
+            
+            all_route_scores.append(best_score)
+        
+        avg_epoch_score = sum(all_route_scores) / len(all_route_scores)
+        print("Epoch: {}, Avg Score: {}".format(epoch_idx, avg_epoch_score))
+        writer.add_scalar('Train/avg_epoch_score', avg_epoch_score, epoch_idx)
 
 
 def main(config):
