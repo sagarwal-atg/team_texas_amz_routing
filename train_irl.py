@@ -44,7 +44,7 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
 def fit(model, dataloader, writer, config):
     theta = np.array([100.0])
     lamb = 100.0
-    learning_rate = 0.01
+    learning_rate = 0.001
     clock = 0
 
     # loop over the dataset multiple times
@@ -52,19 +52,22 @@ def fit(model, dataloader, writer, config):
         avg_epoch_score = 0
 
         all_route_scores = []
-        for idx, data in enumerate(dataloader):
+        
+        for grad_idx in range(config.num_grad_steps):
             clock += 1
-            route_loss = []
-            route_score = []
-            travel_times, link_features, route_features, time_constraints, \
-                stop_ids, travel_time_dict, label = data
             
-            demo_stop_ids = [stop_ids[j] for j in label ]
-            demo_stop_ids.append(demo_stop_ids[0])
+            route_loss = [0] * len(dataloader)
+            route_score = [0] * len(dataloader)
+            grad_lamb_batch = [0] * len(dataloader)
+            grad_theta_batch = [0] * len(dataloader)
+            best_score = [np.inf] * len(dataloader)
 
-            best_score = np.inf
-
-            for grad_idx in range(config.num_grad_steps):
+            for idx, data in enumerate(dataloader):
+                travel_times, link_features, route_features, time_constraints, \
+                    stop_ids, travel_time_dict, label = data
+                
+                demo_stop_ids = [stop_ids[j] for j in label ]
+                demo_stop_ids.append(demo_stop_ids[0])
 
                 num_link_features, num_stops, _ = link_features.shape
                 temp = link_features.reshape(num_link_features, -1).T
@@ -74,9 +77,6 @@ def fit(model, dataloader, writer, config):
                 pred_seq = constrained_tsp.constrained_tsp(
                     objective_matrix, travel_times, time_constraints,
                     depot=label[0], lamb=int(lamb))
-
-                # print('data {} -- predicted seq: {}'.format(
-                #     i, np.array(pred_seq)))
 
                 demo_time_cost, demo_feature_cost = compute_link_cost_seq(
                     travel_times, link_features, label)
@@ -92,32 +92,40 @@ def fit(model, dataloader, writer, config):
                     travel_times, time_constraints, pred_seq)
 
                 # compute gradient
-                grad_lamb = demo_tv - pred_tv
-                grad_theta =  demo_feature_cost - pred_feature_cost
-
-                # update theta and lambda
-                r = learning_rate / (1 + clock * 0.0005)
-                lamb -= grad_lamb * r
-                theta -= grad_theta * r
+                grad_lamb_batch[idx] = demo_tv - pred_tv
+                grad_theta_batch[idx] =  demo_feature_cost - pred_feature_cost
 
                 loss = max((demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv), 0)
 
                 pred_stop_ids = [stop_ids[j] for j in pred_seq ]
-
                 pred_stop_ids.append(pred_stop_ids[0])
+
                 seq_score = score(demo_stop_ids, pred_stop_ids, travel_time_dict)
 
-                best_score = seq_score if seq_score < best_score else best_score
+                best_score[idx] = seq_score if seq_score < best_score[idx] else best_score[idx]
 
-                route_score.append(seq_score)
-                route_loss.append(loss)
+                route_score[idx] = seq_score
+                route_loss[idx] = loss
 
                 # writer.add_scalar('Train/route_{}_loss'.format(i), loss, epoch_idx * config.num_grad_steps + grad_idx)
-                writer.add_scalar('Train/route_{}_score'.format(idx), seq_score, epoch_idx * config.num_grad_steps + grad_idx)
+                writer.add_scalar('Scores/route_{}_score'.format(idx), seq_score, epoch_idx * config.num_grad_steps + grad_idx)
 
-                print("Epoch: {}, Data: {}, Grad Step: {}, Loss: {}, Score: {:02f}".format(epoch_idx, idx, grad_idx, loss, seq_score))
+            avg_grad_lamb = sum(grad_lamb_batch) / len(grad_lamb_batch)
+            avg_grad_theta = sum(grad_theta_batch) / len(grad_theta_batch)
+
+            # update theta and lambda
+            r = learning_rate / (1 + clock * 0.0005)
+            lamb -= avg_grad_lamb * r
+            theta -= avg_grad_theta * r
+
+            avg_loss = sum(route_loss) / len(route_loss)
+            avg_score = sum(route_score) / len(route_score)
+            print("Epoch: {}, Grad Step: {}, Loss: {}, Score: {:02f}".format(epoch_idx, grad_idx, avg_loss, avg_score))
             
-            all_route_scores.append(best_score)
+            writer.add_scalar('Train/avg_route_loss', avg_loss, epoch_idx * config.num_grad_steps + grad_idx)
+            writer.add_scalar('Train/avg_route_score', avg_score, epoch_idx * config.num_grad_steps + grad_idx)
+            
+            all_route_scores.append(avg_score)
         
         avg_epoch_score = sum(all_route_scores) / len(all_route_scores)
         print("Epoch: {}, Avg Score: {}".format(epoch_idx, avg_epoch_score))
