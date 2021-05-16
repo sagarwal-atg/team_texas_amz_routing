@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from IPython import embed
 
-from .data import RouteData, SequenceData, TravelTimeData, RouteData, RouteDatum, TravelTimeDatum, PackageData, PackageDatum
+from .data import RouteData, SequenceData, TravelTimeData, RouteData, RouteDatum, TravelTimeDatum, PackageData, SCORE
 
 IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
@@ -58,6 +58,7 @@ def right_pad2d(m, width, constant=0):
     m2 = np.ones((m.shape[0], width)) * constant
     m2[:, :m.shape[1]] = m
     return m2
+
 
 def get_x_matrix(route_features, link_features, route_lengths, max_route_len) -> FloatMatrix:
     """
@@ -143,7 +144,15 @@ class IRLDataset(Dataset):
         travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
         package_data = PackageData.from_file(data_config.package_path)
 
-        route_ids = route_data.get_high_score_ids()
+        route_score = SCORE.HIGH
+        if data_config.route_score == 'medium':
+            route_score = SCORE.MEDIUM
+        if data_config.route_score == 'low':
+            route_score = SCORE.LOW
+        print(route_score)
+
+        route_ids = route_data.get_routes_with_score_ids(route_score)
+
         route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
         self.route_ids = route_ids
 

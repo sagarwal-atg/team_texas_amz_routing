@@ -1,5 +1,6 @@
 import os
 import argparse
+import time
 import torch
 import datetime
 from torch.utils.data import DataLoader, random_split
@@ -8,6 +9,8 @@ import numpy as np
 from easydict import EasyDict as edict
 import yaml
 import pprint
+from multiprocessing import Pool
+from functools import partial
 
 from models.models import LinearModel
 from dataloaders.irl_dataset import IRLDataset
@@ -15,9 +18,6 @@ from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import tsp, constrained_tsp
 from eval_utils.score import score
 from IPython import embed
-
-
-null_callback = lambda *args, **kwargs: None
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -41,95 +41,126 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     return violation_up + violation_down
 
 
+def compute_tsp_seq_for_route(data, theta, lamb):
+    travel_times, link_features, route_features, time_constraints, \
+        stop_ids, travel_time_dict, label = data
+    
+    demo_stop_ids = [stop_ids[j] for j in label]
+    demo_stop_ids.append(demo_stop_ids[0])
+    
+    num_link_features, num_stops, _ = link_features.shape
+    temp = link_features.reshape(num_link_features, -1).T
+    temp = temp.dot(theta)
+    objective_matrix = temp.reshape(num_stops, num_stops) + 1 * travel_times
+    
+    pred_seq = constrained_tsp.constrained_tsp(
+        objective_matrix, travel_times, time_constraints, depot=label[0], lamb=int(lamb))
+    
+    pred_time_cost, pred_feature_cost = compute_link_cost_seq(travel_times, link_features, pred_seq)
+    demo_time_cost, demo_feature_cost = compute_link_cost_seq(travel_times, link_features, label)
+    
+    pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
+    demo_tv = compute_time_violation_seq(travel_times, time_constraints, label)
+
+    pred_stop_ids = [stop_ids[j] for j in pred_seq]
+    pred_stop_ids.append(pred_stop_ids[0])
+
+    seq_score = score(demo_stop_ids, pred_stop_ids, travel_time_dict)
+    
+    return pred_seq, demo_time_cost, demo_feature_cost, demo_tv, \
+        pred_time_cost, pred_feature_cost, pred_tv, seq_score
+
+
+def compute_tsp_seq_for_a_batch(batch_data, theta, lamb):
+    pool = Pool(processes=8)
+    tsp_func = partial(compute_tsp_seq_for_route, theta=theta, lamb=lamb)
+    batch_output = pool.map(tsp_func, batch_data)
+    pool.close()
+    return batch_output
+
+
+def get_param(batch_demo_time_cost, batch_demo_feature_cost, batch_demo_tv,
+              batch_pred_time_cost, batch_pred_feature_cost, batch_pred_tv,):
+    X1 = batch_demo_feature_cost - batch_pred_feature_cost
+    X2 = np.expand_dims(batch_demo_tv - batch_pred_tv, axis=1)
+    X = np.concatenate((X1, X2), axis=1)
+    y = - (batch_demo_time_cost - batch_pred_time_cost)
+    params = np.linalg.lstsq(X, y, rcond=None)
+    theta = params[0][:-1]
+    lamb = params[0][-1]
+    return theta, lamb
+
+
 def fit(model, dataloader, writer, config):
-    theta = np.array([100.0])
-    lamb = 100.0
-    learning_rate = 0.001
+    theta = np.array([50.0])
+    lamb = 10.0
+    lr = config.learning_rate
     clock = 0
 
     # loop over the dataset multiple times
     for epoch_idx in range(config.num_train_epochs):
-        avg_epoch_score = 0
-
-        all_route_scores = []
+        epoch_score = 0
+        epoch_loss = 0
         
-        for grad_idx in range(config.num_grad_steps):
-            clock += 1
+        clock += 1
+
+        print("Theta: {}, Lambda: {}".format(theta, lamb))
+
+        batch_data = [None] * config.batch_size
+        for idx, data in enumerate(dataloader):
+            batch_data[idx % config.batch_size] = data
+            if idx % config.batch_size == config.batch_size - 1:
+                start_time = time.time()
+                batch_output = compute_tsp_seq_for_a_batch(batch_data, theta, lamb)
+                res = list(zip(*batch_output))
+                batch_demo_time_cost = np.array(res[1])
+                batch_demo_feature_cost = np.array(res[2])
+                batch_demo_tv = np.array(res[3])
+                batch_pred_time_cost = np.array(res[4])
+                batch_pred_feature_cost = np.array(res[5])
+                batch_pred_tv = np.array(res[6])
+                batch_seq_score = np.array(res[7])
             
-            route_loss = [0] * len(dataloader)
-            route_score = [0] * len(dataloader)
-            grad_lamb_batch = [0] * len(dataloader)
-            grad_theta_batch = [0] * len(dataloader)
-            best_score = [np.inf] * len(dataloader)
-
-            for idx, data in enumerate(dataloader):
-                travel_times, link_features, route_features, time_constraints, \
-                    stop_ids, travel_time_dict, label = data
-                
-                demo_stop_ids = [stop_ids[j] for j in label ]
-                demo_stop_ids.append(demo_stop_ids[0])
-
-                num_link_features, num_stops, _ = link_features.shape
-                temp = link_features.reshape(num_link_features, -1).T
-                temp = temp.dot(theta)
-                objective_matrix = temp.reshape(num_stops, num_stops) + 1 * travel_times
-
-                pred_seq = constrained_tsp.constrained_tsp(
-                    objective_matrix, travel_times, time_constraints,
-                    depot=label[0], lamb=int(lamb))
-
-                demo_time_cost, demo_feature_cost = compute_link_cost_seq(
-                    travel_times, link_features, label)
-                pred_time_cost, pred_feature_cost = compute_link_cost_seq(
-                    travel_times, link_features, pred_seq)
-
-                demo_cost = 1 * demo_time_cost + theta.dot(demo_feature_cost)
-                pred_cost = 1 * pred_time_cost + theta.dot(pred_feature_cost)
-
-                demo_tv = compute_time_violation_seq(
-                    travel_times, time_constraints, label)
-                pred_tv = compute_time_violation_seq(
-                    travel_times, time_constraints, pred_seq)
-
                 # compute gradient
-                grad_lamb_batch[idx] = demo_tv - pred_tv
-                grad_theta_batch[idx] =  demo_feature_cost - pred_feature_cost
+                grad_lamb_batch = batch_demo_tv - batch_pred_tv
+                grad_theta_batch = batch_demo_feature_cost - batch_pred_feature_cost
 
-                loss = max((demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv), 0)
+                demo_cost = 1 * batch_demo_time_cost + theta.dot(batch_demo_feature_cost.T)
+                pred_cost = 1 * batch_pred_time_cost + theta.dot(batch_pred_feature_cost.T)
 
-                pred_stop_ids = [stop_ids[j] for j in pred_seq ]
-                pred_stop_ids.append(pred_stop_ids[0])
+                loss = max((np.mean(demo_cost) + lamb * np.mean(batch_demo_tv)) -
+                           (np.mean(pred_cost) + lamb * np.mean(batch_pred_tv)), 0)
 
-                seq_score = score(demo_stop_ids, pred_stop_ids, travel_time_dict)
+                # update theta and lambda
+                # r = lr / (1 + clock * 0.0005)
+                # lamb -= np.mean(grad_lamb_batch) * r
+                # theta -= np.mean(grad_theta_batch) * r
 
-                best_score[idx] = seq_score if seq_score < best_score[idx] else best_score[idx]
+                # Init parameters by finding optimal paramters
+                theta, lamb = get_param(batch_demo_time_cost,
+                                        batch_demo_feature_cost,
+                                        batch_demo_tv,
+                                        batch_pred_time_cost,
+                                        batch_pred_feature_cost,
+                                        batch_pred_tv)
+                
+                mean_score = np.mean(batch_seq_score)
+                epoch_loss += loss
+                epoch_score += mean_score
 
-                route_score[idx] = seq_score
-                route_loss[idx] = loss
+                writer.add_scalar('Train/batch_route_loss', loss, epoch_idx * len(dataloader) + idx)
+                writer.add_scalar('Train/batch_route_score', mean_score, epoch_idx * len(dataloader) + idx)
 
-                # writer.add_scalar('Train/route_{}_loss'.format(i), loss, epoch_idx * config.num_grad_steps + grad_idx)
-                writer.add_scalar('Scores/route_{}_score'.format(idx), seq_score, epoch_idx * config.num_grad_steps + grad_idx)
+                print("Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {}, Theta: {}, Lambda: {}".
+                      format(epoch_idx, int(idx / config.batch_size), loss, mean_score, time.time() - start_time, theta, lamb))
 
-            avg_grad_lamb = sum(grad_lamb_batch) / len(grad_lamb_batch)
-            avg_grad_theta = sum(grad_theta_batch) / len(grad_theta_batch)
+        mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader))
+        mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader))
 
-            # update theta and lambda
-            r = learning_rate / (1 + clock * 0.0005)
-            lamb -= avg_grad_lamb * r
-            theta -= avg_grad_theta * r
+        print("Epoch Loss: {}, Epoch Score: {}".format(mean_epoch_loss, mean_epoch_score))
 
-            avg_loss = sum(route_loss) / len(route_loss)
-            avg_score = sum(route_score) / len(route_score)
-            print("Epoch: {}, Grad Step: {}, Loss: {}, Score: {:02f}".format(epoch_idx, grad_idx, avg_loss, avg_score))
-            
-            writer.add_scalar('Train/avg_route_loss', avg_loss, epoch_idx * config.num_grad_steps + grad_idx)
-            writer.add_scalar('Train/avg_route_score', avg_score, epoch_idx * config.num_grad_steps + grad_idx)
-            
-            all_route_scores.append(avg_score)
-        
-        avg_epoch_score = sum(all_route_scores) / len(all_route_scores)
-        print("Epoch: {}, Avg Score: {}".format(epoch_idx, avg_epoch_score))
-        writer.add_scalar('Train/avg_epoch_score', avg_epoch_score, epoch_idx)
+        writer.add_scalar('Train/loss', mean_epoch_loss, epoch_idx)
+        writer.add_scalar('Train/score', mean_epoch_score, epoch_idx)
 
 
 def main(config):

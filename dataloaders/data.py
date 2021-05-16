@@ -1,15 +1,16 @@
 
 from types import SimpleNamespace
 import json
-from typing import Dict, List, Sequence, Union
+from typing import Dict, List, Union
 import numpy as np
-from datetime import time, timedelta, datetime
+from datetime import datetime
 
 from munch import Munch  # used to give dot accessing to dict
 
+SCORE = SimpleNamespace(LOW='Low', MEDIUM='Medium', HIGH='High')
+
 
 class RouteDatum:
-    SCORE = SimpleNamespace(LOW='Low', MEDIUM='Medium', HIGH='High')
 
     def __init__(self, data):
         self._data = Munch(data)
@@ -35,8 +36,8 @@ class RouteDatum:
     def get_score(self):
         return self._data.route_score
 
-    def is_high_score(self):
-        return self.get_score() == self.SCORE.HIGH
+    def is_score(self, score):
+        return self.get_score() == score
 
     def get_start_time(self):
         return datetime.fromisoformat(
@@ -103,7 +104,7 @@ class TravelTimeDatum:
     def __init__(self, data: Dict[str, Dict[str, float]]) -> None:
         self._data = data
 
-    def as_matrix(self, stop_ids: List[str]=None):
+    def as_matrix(self, stop_ids: List[str] = None):
         route_len = len(stop_ids)
         times = np.zeros((route_len, route_len))
         for i, stop1 in enumerate(stop_ids):
@@ -193,9 +194,9 @@ class RouteData(AmazonData):
     def __init__(self, data):
         super().__init__(data, RouteDatum)
 
-    def get_high_score_ids(self):
+    def get_routes_with_score_ids(self, score):
         res = [route_id for route_id, route in self._data.items()
-               if route.is_high_score()]
+               if route.is_score(score)]
         return res
 
 

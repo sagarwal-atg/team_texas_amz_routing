@@ -5,7 +5,7 @@ from ortools.constraint_solver import pywrapcp
 
 
 def constrained_tsp(
-        objective_matrix, travel_time_matrix, time_window_list, depot, lamb):
+        objective_matrix, travel_time_matrix, time_window_list, depot, lamb, time_limit=2, solution_limit=5):
     """Solve the VRP with time windows."""
     lamda_1 = lamb
     lamda_2 = lamb
@@ -28,6 +28,7 @@ def constrained_tsp(
                 solution_collector.append(temp)
                 index = solution.Value(routing.NextVar(index))
         return solution_collector
+    
 
     # Create the routing index manager.
     manager = pywrapcp.RoutingIndexManager(
@@ -100,6 +101,8 @@ def constrained_tsp(
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+    # search_parameters.time_limit.seconds = time_limit
+    # search_parameters.solution_limit = solution_limit
 
     # Solve the problem.
     solution = routing.SolveWithParameters(search_parameters)
