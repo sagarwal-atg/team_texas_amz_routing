@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import argparse
 import time
@@ -41,6 +42,15 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     return violation_up + violation_down
 
 
+####### Define a Neural Network Model
+## Input: features of a link (length, zone crossing, other global features: number of stops etc)
+## Output: Abstract Distance of a link
+## trainable parameters: a fully-connect neural net and lambda
+## Loss: See Overleaf
+
+#########
+
+
 def compute_tsp_seq_for_route(data, theta, lamb):
     travel_times, link_features, route_features, time_constraints, \
         stop_ids, travel_time_dict, label = data
@@ -48,16 +58,25 @@ def compute_tsp_seq_for_route(data, theta, lamb):
     demo_stop_ids = [stop_ids[j] for j in label]
     demo_stop_ids.append(demo_stop_ids[0])
 
+    ##### Replace the following part with Neural Network -- forward pass
     num_link_features, num_stops, _ = link_features.shape
     temp = link_features.reshape(num_link_features, -1).T
     temp = temp.dot(theta)
     objective_matrix = temp.reshape(num_stops, num_stops) + 1 * travel_times
 
+    # objective_matrix = forward_pass(travel_times, link_feature, route_features)
+
+    ###########
+
     pred_seq = constrained_tsp.constrained_tsp(
         objective_matrix, travel_times, time_constraints, depot=label[0], lamb=int(lamb))
 
+    ####### Remove this part
+    ## time_cost and feature_cost not needed in computing grad
+    ## since we have replaced it with a neural net
     pred_time_cost, pred_feature_cost = compute_link_cost_seq(travel_times, link_features, pred_seq)
     demo_time_cost, demo_feature_cost = compute_link_cost_seq(travel_times, link_features, label)
+    ########
 
     pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
     demo_tv = compute_time_violation_seq(travel_times, time_constraints, label)
@@ -136,6 +155,7 @@ def fit(model, dataloader, writer, config):
                 # lamb -= np.mean(grad_lamb_batch) * r
                 # theta -= np.mean(grad_theta_batch) * r
 
+            ##### Replace the following part with Neural Net -- backward pass
                 # Init parameters by finding optimal paramters
                 theta, lamb = get_param(batch_demo_time_cost,
                                         batch_demo_feature_cost,
@@ -143,6 +163,11 @@ def fit(model, dataloader, writer, config):
                                         batch_pred_time_cost,
                                         batch_pred_feature_cost,
                                         batch_pred_tv)
+
+                # we need be very careful about loss computation
+                # loss.backward()
+
+            #####
 
                 mean_score = np.mean(batch_seq_score)
                 epoch_loss += loss
