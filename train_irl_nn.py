@@ -18,6 +18,12 @@ from models.irl_models import IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
 
+OKRED = "\033[91m"
+OKBLUE = "\033[94m"
+ENDC = "\033[0m"
+OKGREEN = "\033[92m"
+OKYELLOW = "\033[93m"
+
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
     time_cost = 0
@@ -214,11 +220,15 @@ def fit(model, dataloader, writer, config):
                 )
             )
 
-        mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader))
-        mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader))
+        mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader.dataset))
+        mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader.dataset))
 
         print(
-            "Epoch Loss: {}, Epoch Score: {}".format(mean_epoch_loss, mean_epoch_score)
+            OKBLUE
+            + "Epoch Loss: {}, Epoch Score: {}".format(
+                mean_epoch_loss, mean_epoch_score
+            )
+            + ENDC
         )
 
         writer.add_scalar("Train/loss", mean_epoch_loss, epoch_idx)

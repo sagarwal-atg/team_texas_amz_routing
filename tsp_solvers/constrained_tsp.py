@@ -1,38 +1,44 @@
 """Vehicles Routing Problem (VRP) with Time Windows."""
 
-from ortools.constraint_solver import routing_enums_pb2
-from ortools.constraint_solver import pywrapcp
+from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 
 def constrained_tsp(
-        objective_matrix, travel_time_matrix, time_window_list, depot, lamb, time_limit=2, solution_limit=5):
+    objective_matrix,
+    travel_time_matrix,
+    time_window_list,
+    depot,
+    lamb,
+    time_limit=2,
+    solution_limit=1,
+):
     """Solve the VRP with time windows."""
     lamda_1 = lamb
     lamda_2 = lamb
 
     # Instantiate the data problem.
     data = {}
-    data['objective_matrix'] = objective_matrix
-    data['time_matrix'] = travel_time_matrix
-    data['time_windows'] = time_window_list
-    data['num_vehicles'] = 1
-    data['depot'] = int(depot)
+    data["objective_matrix"] = objective_matrix
+    data["time_matrix"] = travel_time_matrix
+    data["time_windows"] = time_window_list
+    data["num_vehicles"] = 1
+    data["depot"] = int(depot)
 
     def get_tsp_solution(manager, routing, solution):
         """Prints solution on console."""
         solution_collector = []
-        for vehicle_id in range(data['num_vehicles']):
+        for vehicle_id in range(data["num_vehicles"]):
             index = routing.Start(vehicle_id)
             while not routing.IsEnd(index):
                 temp = manager.IndexToNode(index)
                 solution_collector.append(temp)
                 index = solution.Value(routing.NextVar(index))
         return solution_collector
-    
 
     # Create the routing index manager.
     manager = pywrapcp.RoutingIndexManager(
-        len(data['time_matrix']), data['num_vehicles'], int(data['depot']))
+        len(data["time_matrix"]), data["num_vehicles"], int(data["depot"])
+    )
 
     # Create Routing Model.
     routing = pywrapcp.RoutingModel(manager)
@@ -43,10 +49,9 @@ def constrained_tsp(
         # Convert from routing variable Index to distance matrix NodeIndex.
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
-        return data['objective_matrix'][from_node][to_node]
+        return data["objective_matrix"][from_node][to_node]
 
-    transit_callback_index_obj = routing.RegisterTransitCallback(
-        objective_callback)
+    transit_callback_index_obj = routing.RegisterTransitCallback(objective_callback)
 
     # Define cost of each arc.
     routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index_obj)
@@ -57,52 +62,52 @@ def constrained_tsp(
         # Convert from routing variable Index to time matrix NodeIndex.
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
-        return data['time_matrix'][from_node][to_node]
+        return data["time_matrix"][from_node][to_node]
 
     transit_callback_index = routing.RegisterTransitCallback(time_callback)
 
     # Add Time Windows constraint.
-    time = 'Time'
+    time = "Time"
     routing.AddDimension(
         transit_callback_index,
         50000,  # allow waiting time
         50000,  # maximum time per vehicle
         False,  # Don't force start cumul to zero.
-        time)
+        time,
+    )
 
     time_dimension = routing.GetDimensionOrDie(time)
 
     # Add time window constraints for each location except depot.
-    for location_idx, time_window in enumerate(data['time_windows']):
-        if location_idx == data['depot']:
+    for location_idx, time_window in enumerate(data["time_windows"]):
+        if location_idx == data["depot"]:
             continue
         index = manager.NodeToIndex(location_idx)
-        time_dimension.SetCumulVarSoftLowerBound(
-            index, int(time_window[0]), lamda_1)
-        time_dimension.SetCumulVarSoftUpperBound(
-            index, int(time_window[1]), lamda_2)
+        time_dimension.SetCumulVarSoftLowerBound(index, int(time_window[0]), lamda_1)
+        time_dimension.SetCumulVarSoftUpperBound(index, int(time_window[1]), lamda_2)
 
     # Add time window constraints for each vehicle start node.
-    depot_idx = data['depot']
-    for vehicle_id in range(data['num_vehicles']):
+    depot_idx = data["depot"]
+    for vehicle_id in range(data["num_vehicles"]):
         index = routing.Start(vehicle_id)
         time_dimension.CumulVar(index).SetRange(
-            data['time_windows'][depot_idx][0],
-            data['time_windows'][depot_idx][1])
+            data["time_windows"][depot_idx][0], data["time_windows"][depot_idx][1]
+        )
 
     # Instantiate route start and end times to produce feasible times.
-    for i in range(data['num_vehicles']):
+    for i in range(data["num_vehicles"]):
         routing.AddVariableMinimizedByFinalizer(
-            time_dimension.CumulVar(routing.Start(i)))
-        routing.AddVariableMinimizedByFinalizer(
-            time_dimension.CumulVar(routing.End(i)))
+            time_dimension.CumulVar(routing.Start(i))
+        )
+        routing.AddVariableMinimizedByFinalizer(time_dimension.CumulVar(routing.End(i)))
 
     # Setting first solution heuristic.
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
     # search_parameters.time_limit.seconds = time_limit
-    # search_parameters.solution_limit = solution_limit
+    search_parameters.solution_limit = solution_limit
 
     # Solve the problem.
     solution = routing.SolveWithParameters(search_parameters)

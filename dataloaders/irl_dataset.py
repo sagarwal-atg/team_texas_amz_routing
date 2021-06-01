@@ -1,3 +1,4 @@
+import time
 from collections import namedtuple
 from functools import total_ordering
 from typing import Any, List
@@ -299,8 +300,14 @@ def irl_nn_collate(batch):
     return [nn_data, other_data]
 
 
+filter_ids = ["RouteID_001948e9-4675-486d-9ec5-912fd8e0770f"]
+
+
 class IRLNNDataset(Dataset):
     def __init__(self, data_config):
+
+        start_time = time.time()
+
         route_data = RouteData.from_file(data_config.route_path)
         sequence_data = SequenceData.from_file(data_config.sequence_path)
         travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
@@ -317,7 +324,6 @@ class IRLNNDataset(Dataset):
         route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
         self.route_ids = route_ids
 
-        print(f"Using data from {len(route_ids)} routes.")
         route_lengths = [len(sequence_data[route]) for route in route_ids]
         self.route_lengths = route_lengths
         self.max_route_len = max(route_lengths)
@@ -402,6 +408,10 @@ class IRLNNDataset(Dataset):
 
         self.nn_data = self.preprocess(data_config)
 
+        print(
+            f"Using data from {len(self.x)} routes in {time.time() - start_time} secs"
+        )
+
     def preprocess(self, data_config):
         num_routes = len(self.x)
         num_link_features = data_config.num_link_features
@@ -444,8 +454,8 @@ class IRLNNDataset(Dataset):
             tt_np[:, idx_so_far : (idx_so_far + flat_tt.shape[0])] = flat_tt
             idx_so_far += flat_tt.shape[0]
 
-        tt_scaler = preprocessing.StandardScaler().fit(tt_np)
-        tt_np = tt_scaler.transform(tt_np)
+        # tt_scaler = preprocessing.StandardScaler().fit(tt_np)
+        # tt_np = tt_scaler.transform(tt_np)
 
         rf_scaler = preprocessing.StandardScaler().fit(route_features)
         route_features = rf_scaler.transform(route_features)
