@@ -13,7 +13,7 @@ class IRLModel(nn.Module):
         self.fc2 = nn.Linear(num_features, num_features)
         self.fc3 = nn.Linear(num_features, 1)
 
-        param = torch.zeros((1)).type(torch.FloatTensor)
+        param = torch.FloatTensor((0.24744)).type(torch.FloatTensor)
         self.lamb = torch.nn.Parameter(param, requires_grad=True)
 
     def forward(self, x):
