@@ -1,16 +1,25 @@
+from os import link
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from IPython import embed
 
 class LinearModel(nn.Module):
     def __init__(self, size):
         super().__init__()
         self.size = size
-        self.theta = nn.Parameter(torch.randn((size, size), dtype=torch.float32))
+        self.theta = torch.randn((size), dtype=torch.float32)
 
-    def forward(self, x):
-        return self.theta @ x
+    def forward(self, link_features, route_features):
+        link_features = torch.Tensor(link_features)
+        travel_time_matrix = torch.zeros((link_features.shape[0], link_features.shape[1]))
+
+        # route_constant = self.theta[-1] * torch.Tensor(route_features)
+        for i in range(link_features.shape[0]):
+            for j in range(link_features.shape[1]):
+                travel_time_matrix[i][j] = self.theta.T @ link_features[i][j]
+
+        return travel_time_matrix
 
 
 def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):

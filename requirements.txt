@@ -2,11 +2,13 @@
 argparse
 easydict
 folium
+ipython
 pyyaml
 sklearn
 torch
 torchvision
 tensorboardX
+ortools
 
 ###### Requirements with Version Specifiers ######`
 munch==2.5.0
