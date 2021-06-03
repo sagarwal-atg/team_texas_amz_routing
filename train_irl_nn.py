@@ -8,6 +8,7 @@ from multiprocessing import Pool
 import numpy as np
 import torch
 import torch.nn.functional as F
+import tqdm
 from IPython import embed
 from tensorboardX import SummaryWriter
 from torch import optim
@@ -46,15 +47,6 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     return violation_up + violation_down
 
 
-####### Define a Neural Network Model
-## Input: features of a link (length, zone crossing, other global features: number of stops etc)
-## Output: Abstract Distance of a link
-## trainable parameters: a fully-connect neural net and lambda
-## Loss: See Overleaf
-
-#########
-
-
 def compute_tsp_seq_for_route(data, lamb):
     (
         objective_matrix,
@@ -81,23 +73,18 @@ def compute_tsp_seq_for_route(data, lamb):
 
     seq_score = score(demo_stop_ids, pred_stop_ids, travel_time_dict)
 
-    return (
-        pred_seq,
-        demo_tv,
-        pred_tv,
-        seq_score,
-    )
+    return (pred_seq, demo_tv, pred_tv, seq_score)
 
 
 def compute_tsp_seq_for_a_batch(batch_data, lamb):
     pool = Pool(processes=8)
     tsp_func = partial(compute_tsp_seq_for_route, lamb=lamb)
-    batch_output = pool.map(tsp_func, batch_data)
+    batch_output = list(tqdm.tqdm(pool.map(tsp_func, batch_data)))
     pool.close()
     return batch_output
 
 
-def irl_loss(batch_output, thetas, tsp_data, model):
+def irl_loss(batch_output, thetas_tensor, tsp_data, model):
 
     loss = 0.0
     for route_idx in range(len(batch_output)):
@@ -107,11 +94,11 @@ def irl_loss(batch_output, thetas, tsp_data, model):
 
         pred_cost = torch.sum(
             torch.from_numpy(seq_binary_mat(pred_seq)).type(torch.FloatTensor)
-            @ thetas[route_idx]
+            * thetas_tensor[route_idx]
         )
         demo_cost = torch.sum(
             torch.from_numpy(tsp_data[route_idx].binary_mat).type(torch.FloatTensor)
-            @ thetas[route_idx]
+            * thetas_tensor[route_idx]
         )
 
         route_loss = F.relu(
@@ -132,46 +119,49 @@ def fit(model, dataloader, writer, config):
 
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
 
+    model.train()
+
+    best_loss = 1e10
+
     # loop over the dataset multiple times
     for epoch_idx in range(config.num_train_epochs):
         epoch_score = 0
         epoch_loss = 0
 
-        for idx, data in enumerate(dataloader):
+        for d_idx, data in enumerate(dataloader):
             start_time = time.time()
             nn_data, tsp_data = data
+            optimizer.zero_grad()
 
             stack_nn_data = torch.cat(nn_data, 0)
             stack_nn_data = stack_nn_data.to(device)
             obj_matrix = model(stack_nn_data)
 
             idx_so_far = 0
-            thetas = []
+            thetas_np = []
             thetas_tensor = []
             for idx, data in enumerate(tsp_data):
                 route_len = data.travel_times.shape[0]
-                theta = (
-                    obj_matrix[idx_so_far : (idx_so_far + (route_len * route_len))]
-                    .reshape((route_len, route_len))
-                    .detach()
-                    .numpy()
-                )
-
                 thetas_tensor.append(
                     obj_matrix[
                         idx_so_far : (idx_so_far + (route_len * route_len))
                     ].reshape((route_len, route_len))
                 )
 
+                theta = thetas_tensor[idx].clone()
+                theta = theta.detach().numpy()
+                thetas_np.append(theta)
+
                 idx_so_far += route_len * route_len
 
-                thetas.append(theta)
+            for theta in thetas_tensor:
+                theta.retain_grad()
 
             batch_data = []
             for idx, data in enumerate(tsp_data):
                 batch_data.append(
                     (
-                        thetas[idx],
+                        thetas_np[idx],
                         data.travel_times,
                         data.time_constraints,
                         data.stop_ids,
@@ -184,14 +174,10 @@ def fit(model, dataloader, writer, config):
                 batch_data, model.lamb.detach().numpy()
             )
 
-            optimizer.zero_grad()
-
             loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
             loss.backward()
             optimizer.step()
-
-            epoch_loss += loss.item()
 
             res = list(zip(*batch_output))
             batch_seq_score = np.array(res[3])
@@ -210,9 +196,9 @@ def fit(model, dataloader, writer, config):
             )
 
             print(
-                "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {}, Lambda: {}".format(
+                "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}".format(
                     epoch_idx,
-                    int(idx / config.batch_size),
+                    d_idx,
                     loss.item(),
                     mean_score,
                     time.time() - start_time,
@@ -222,6 +208,14 @@ def fit(model, dataloader, writer, config):
 
         mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader.dataset))
         mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader.dataset))
+
+        if best_loss > mean_epoch_loss:
+            best_loss = mean_epoch_loss
+            torch.save(
+                model.state_dict(),
+                config.training_dir + "/best_model_{}.pt".format(config.name),
+            )
+            print("Model Saved")
 
         print(
             OKBLUE
@@ -238,6 +232,7 @@ def fit(model, dataloader, writer, config):
 def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
+
     train_data = IRLNNDataset(config.data)
     train_loader = torch.utils.data.DataLoader(
         train_data,

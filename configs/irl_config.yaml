@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'linear_irl_batch_lp_all_routes'
+name: 'nn_irl_small_batch'
 
 seed: 0
 train_split: 0.7  # Training data is 70% and test data is 30%

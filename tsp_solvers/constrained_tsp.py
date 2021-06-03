@@ -107,7 +107,7 @@ def constrained_tsp(
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     )
     # search_parameters.time_limit.seconds = time_limit
-    search_parameters.solution_limit = solution_limit
+    # search_parameters.solution_limit = solution_limit
 
     # Solve the problem.
     solution = routing.SolveWithParameters(search_parameters)
