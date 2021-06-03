@@ -132,14 +132,17 @@ def fit(model, dataloader, writer, config):
 
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
 
+    model.train()
+
     # loop over the dataset multiple times
     for epoch_idx in range(config.num_train_epochs):
         epoch_score = 0
         epoch_loss = 0
 
-        for idx, data in enumerate(dataloader):
+        for d_idx, data in enumerate(dataloader):
             start_time = time.time()
             nn_data, tsp_data = data
+            optimizer.zero_grad()
 
             stack_nn_data = torch.cat(nn_data, 0)
             stack_nn_data = stack_nn_data.to(device)
@@ -153,8 +156,8 @@ def fit(model, dataloader, writer, config):
                 theta = (
                     obj_matrix[idx_so_far : (idx_so_far + (route_len * route_len))]
                     .reshape((route_len, route_len))
-                    .detach()
-                    .numpy()
+                    .clone()
+                    .data.numpy()
                 )
 
                 thetas_tensor.append(
@@ -184,14 +187,12 @@ def fit(model, dataloader, writer, config):
                 batch_data, model.lamb.detach().numpy()
             )
 
-            optimizer.zero_grad()
+            embed()
 
             loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
             loss.backward()
             optimizer.step()
-
-            epoch_loss += loss.item()
 
             res = list(zip(*batch_output))
             batch_seq_score = np.array(res[3])
@@ -210,9 +211,9 @@ def fit(model, dataloader, writer, config):
             )
 
             print(
-                "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {}, Lambda: {}".format(
+                "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}".format(
                     epoch_idx,
-                    int(idx / config.batch_size),
+                    d_idx,
                     loss.item(),
                     mean_score,
                     time.time() - start_time,
