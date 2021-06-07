@@ -9,6 +9,7 @@ torch
 torchvision
 tensorboardX
 ortools
+tqdm
 
 ###### Requirements with Version Specifiers ######`
 munch==2.5.0

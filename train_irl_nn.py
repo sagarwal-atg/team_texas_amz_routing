@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime
+from multiprocessing.pool import ApplyResult
 import pprint
 import time
 from functools import partial
@@ -8,7 +9,7 @@ from multiprocessing import Pool
 import numpy as np
 import torch
 import torch.nn.functional as F
-import tqdm
+from tqdm import tqdm
 from IPython import embed
 from tensorboardX import SummaryWriter
 from torch import optim
@@ -77,9 +78,11 @@ def compute_tsp_seq_for_route(data, lamb):
 
 
 def compute_tsp_seq_for_a_batch(batch_data, lamb):
-    pool = Pool(processes=8)
+    pool = Pool(processes=12)
     tsp_func = partial(compute_tsp_seq_for_route, lamb=lamb)
-    batch_output = list(tqdm.tqdm(pool.map(tsp_func, batch_data)))
+    batch_output = []
+    for out in tqdm(pool.imap(tsp_func, batch_data)):
+        batch_output.append(out)
     pool.close()
     return batch_output
 
@@ -101,9 +104,11 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
             * thetas_tensor[route_idx]
         )
 
-        route_loss = F.relu(
-            (demo_cost + model.lamb * demo_tv) - (pred_cost + model.lamb * pred_tv)
-        )
+        # route_loss = F.relu(
+        #     (demo_cost + model.lamb * demo_tv) - (pred_cost + model.lamb * pred_tv)
+        # )
+
+        route_loss = torch.log(demo_cost + model.lamb * demo_tv) - torch.log(pred_cost + model.lamb * pred_tv)
 
         loss += route_loss
 
@@ -122,6 +127,7 @@ def fit(model, dataloader, writer, config):
     model.train()
 
     best_loss = 1e10
+    best_score = 1e10
 
     # loop over the dataset multiple times
     for epoch_idx in range(config.num_train_epochs):
@@ -130,7 +136,7 @@ def fit(model, dataloader, writer, config):
 
         for d_idx, data in enumerate(dataloader):
             start_time = time.time()
-            nn_data, tsp_data = data
+            nn_data, tsp_data, scaled_tc_data = data
             optimizer.zero_grad()
 
             stack_nn_data = torch.cat(nn_data, 0)
@@ -171,13 +177,14 @@ def fit(model, dataloader, writer, config):
                 )
 
             batch_output = compute_tsp_seq_for_a_batch(
-                batch_data, model.lamb.detach().numpy()
+                batch_data, model.lamb.clone().detach().numpy()
             )
 
             loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
-            loss.backward()
-            optimizer.step()
+            if epoch_idx != 0:
+                loss.backward()
+                optimizer.step()
 
             res = list(zip(*batch_output))
             batch_seq_score = np.array(res[3])
@@ -209,6 +216,7 @@ def fit(model, dataloader, writer, config):
         mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader.dataset))
         mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader.dataset))
 
+        loss_print_str = "{}".format(mean_epoch_loss)
         if best_loss > mean_epoch_loss:
             best_loss = mean_epoch_loss
             torch.save(
@@ -216,13 +224,21 @@ def fit(model, dataloader, writer, config):
                 config.training_dir + "/best_model_{}.pt".format(config.name),
             )
             print("Model Saved")
+            loss_print_str = OKRED + loss_print_str + ENDC
 
-        print(
-            OKBLUE
-            + "Epoch Loss: {}, Epoch Score: {}".format(
-                mean_epoch_loss, mean_epoch_score
+
+        score_print_str = "{}".format(mean_epoch_score)
+        if  best_score > mean_epoch_score:
+            best_score = mean_epoch_score
+            torch.save(
+                model.state_dict(),
+                config.training_dir + "/best_score_{}.pt".format(config.name),
             )
-            + ENDC
+            print("Model Saved")
+            score_print_str = OKYELLOW + score_print_str + ENDC
+        
+        print( OKBLUE + 
+            "Epoch Loss: " + ENDC + loss_print_str + OKBLUE + " , Epoch Score: " + ENDC + score_print_str
         )
 
         writer.add_scalar("Train/loss", mean_epoch_loss, epoch_idx)
@@ -248,9 +264,13 @@ def main(config):
         )
     )
 
-    model = IRLModel(
-        num_features=3,
-    )
+    model = IRLModel(num_features=3)
+    device = torch.device('cpu')
+
+    if hasattr(config, 'save_path'):
+        chkpt = torch.load(config.save_path, map_location=torch.device(device))
+        model.load_state_dict(chkpt)
+
     fit(model, train_loader, writer, config)
     print("Finished Training")
 

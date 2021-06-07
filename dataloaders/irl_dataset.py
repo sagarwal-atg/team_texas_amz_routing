@@ -297,7 +297,8 @@ def seq_binary_mat(seq):
 def irl_nn_collate(batch):
     nn_data = [item[0] for item in batch]
     other_data = [item[1] for item in batch]
-    return [nn_data, other_data]
+    scaled_tc_data = [item[2] for item in batch]
+    return [nn_data, other_data, scaled_tc_data]
 
 
 filter_ids = ["RouteID_001948e9-4675-486d-9ec5-912fd8e0770f"]
@@ -406,7 +407,7 @@ class IRLNNDataset(Dataset):
 
             self.x.append(irl_data)
 
-        self.nn_data = self.preprocess(data_config)
+        self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
 
         print(
             f"Using data from {len(self.x)} routes in {time.time() - start_time} secs"
@@ -420,6 +421,7 @@ class IRLNNDataset(Dataset):
         travel_times = [None] * num_routes
         link_features = [None] * num_routes
         route_features = np.zeros((num_routes, num_route_features))
+        time_constraints = [None] * num_routes
 
         transformed_data = [None] * num_routes
 
@@ -447,15 +449,37 @@ class IRLNNDataset(Dataset):
 
             route_features[idx] = rf
 
+            time_constraints[idx] = np.array(data.time_constraints)
+        
         tt_np = np.zeros((1, total_num_links))
         idx_so_far = 0
         for tt_data in travel_times:
             flat_tt = tt_data.flatten()
             tt_np[:, idx_so_far : (idx_so_far + flat_tt.shape[0])] = flat_tt
             idx_so_far += flat_tt.shape[0]
+        
+        # Time Constraint Scaling
+        tc_np = np.zeros((sum([a.shape[0] for a in time_constraints]), 2))
+        # idx_so_far = 0
+        # for tc_data in time_constraints:
+        #     num_stops = tc_data.shape[0]
+        #     tc_np[idx_so_far:(idx_so_far + num_stops), :] = tc_data
+        #     idx_so_far += num_stops
 
-        # tt_scaler = preprocessing.StandardScaler().fit(tt_np)
-        # tt_np = tt_scaler.transform(tt_np)
+        # tt_scaler = preprocessing.StandardScaler(with_mean=False).fit(tt_np.T)
+        # tt_np = tt_scaler.transform(tt_np.T)
+        # tt_np = tt_np.T
+
+        # tc_np = (tc_np) / (tt_scaler.var_)
+        # tc_np = tc_np.astype(np.int)
+
+        # Time Constraint Scaling
+        scaled_tc_data = []
+        idx_so_far = 0
+        for tc_data in time_constraints:
+            num_stops = tc_data.shape[0]
+            scaled_tc_data.append(tc_np[idx_so_far:(idx_so_far + num_stops)].tolist())
+            idx_so_far += num_stops
 
         rf_scaler = preprocessing.StandardScaler().fit(route_features)
         route_features = rf_scaler.transform(route_features)
@@ -463,6 +487,7 @@ class IRLNNDataset(Dataset):
         idx_so_far = 0
         for idx, data in enumerate(self.x):
             route_len = data.travel_times.shape[0]
+            
             nn_data_np = np.zeros(
                 (route_len * route_len, num_link_features + num_route_features + 1)
             )
@@ -481,7 +506,7 @@ class IRLNNDataset(Dataset):
             )
             transformed_data[idx] = nn_data_np
 
-        return transformed_data
+        return transformed_data, scaled_tc_data
 
     def __len__(self):
         return len(self.x)
@@ -489,4 +514,5 @@ class IRLNNDataset(Dataset):
     def __getitem__(self, idx):
         nn_data = torch.from_numpy(self.nn_data[idx]).type(torch.FloatTensor)
         other_data = self.x[idx]
-        return [nn_data, other_data]
+        scaled_tc_data = self.scaled_tc_data[idx]
+        return [nn_data, other_data, scaled_tc_data]
