@@ -1,3 +1,5 @@
+import os
+import pickle
 import time
 from collections import namedtuple
 from functools import total_ordering
@@ -9,6 +11,7 @@ from IPython import embed
 from nptyping import NDArray
 from numpy import concatenate as concat
 from sklearn import preprocessing
+from torch.utils import data
 from torch.utils.data import Dataset
 
 from .data import (
@@ -20,6 +23,7 @@ from .data import (
     TravelTimeData,
     TravelTimeDatum,
 )
+from .utils import ENDC, OKGREEN
 
 IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
@@ -301,6 +305,20 @@ def irl_nn_collate(batch):
     return [nn_data, other_data, scaled_tc_data]
 
 
+def find_closest_idx(travel_times, num_closest):
+    assert num_closest % 2 == 0, "Only even num closest is supported"
+    closest_idx = np.zeros((travel_times.shape[0], travel_times.shape[1], num_closest))
+
+    for idx in range(travel_times.shape[0]):
+        for jdx in range(travel_times.shape[1]):
+            top_n_rows = np.argsort(travel_times[:, jdx])[: int(num_closest / 2)]
+            top_n_cols = np.argsort(travel_times[idx, :])[: int(num_closest / 2)]
+            closest_idx[idx, jdx, :] = np.array([top_n_rows, top_n_cols]).reshape(
+                (num_closest,)
+            )
+    return closest_idx
+
+
 class IRLNNDataset(Dataset):
     def __init__(self, data_config, cache_path=None):
 
@@ -382,6 +400,7 @@ class IRLNNDataset(Dataset):
             return stop_ids, travel_time_dict
 
         self.x = []
+        closest_idxs_for_route = []
 
         for route_id in route_ids:
             travel_times = get_travel_time(route_id)
@@ -403,11 +422,32 @@ class IRLNNDataset(Dataset):
                 binary_mat=binary_mat,
             )
 
+            if data_config.num_neighbors > 1:
+                closest_idxs_for_route.append(
+                    find_closest_idx(travel_times, data_config.num_neighbors)
+                )
+
             self.x.append(irl_data)
 
-        # if cache_path is not None:
-        #     if os.path(cache_path, 'cache_path.npz')
-        self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
+        cache_file_path = os.path.join(cache_path, "cache_path.npz")
+        print(cache_file_path, os.path.isfile(cache_file_path))
+        if os.path.isfile(cache_file_path) and data_config.use_cache:
+            data = np.load(cache_file_path, allow_pickle=True)
+            self.nn_data = data["arr_0"]
+            self.scaled_tc_data = data["arr_1"]
+            print(
+                OKGREEN
+                + " Using Cached Data !!. Deleted file or change flag "
+                + "if you have made new changes to the feature generation"
+                + ENDC
+            )
+        else:
+            self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
+            if len(closest_idxs_for_route) != 0:
+                self.nn_data = self.add_neighbors(
+                    self.nn_data, data_config.num_neighbors, closest_idxs_for_route
+                )
+            np.savez(cache_file_path, self.nn_data, self.scaled_tc_data)
 
         print(
             f"Using data from {len(self.x)} routes in {time.time() - start_time} secs"
@@ -425,14 +465,14 @@ class IRLNNDataset(Dataset):
 
         transformed_data = [None] * num_routes
 
-        total_num_links = 0
+        self.total_num_links = 0
         for idx, data in enumerate(self.x):
             tt = data.travel_times
             assert len(tt.shape) == 2
             route_len = tt.shape[0]
 
             travel_times[idx] = tt
-            total_num_links += tt.shape[0] * tt.shape[0]
+            self.total_num_links += tt.shape[0] * tt.shape[0]
 
             lf = data.link_features
 
@@ -451,7 +491,7 @@ class IRLNNDataset(Dataset):
 
             time_constraints[idx] = np.array(data.time_constraints)
 
-        tt_np = np.zeros((1, total_num_links))
+        tt_np = np.zeros((1, self.total_num_links))
         idx_so_far = 0
         for tt_data in travel_times:
             flat_tt = tt_data.flatten()
@@ -507,6 +547,46 @@ class IRLNNDataset(Dataset):
             transformed_data[idx] = nn_data_np
 
         return transformed_data, scaled_tc_data
+
+    def add_neighbors(self, nn_data, num_neighbors, closest_idxs_for_route):
+        new_nn_data = []
+        num_features = nn_data[0].shape[1]
+
+        for d_idx in range(len(closest_idxs_for_route)):
+            route_len, route_len, _ = closest_idxs_for_route[d_idx].shape
+            num_links_in_route = route_len * route_len
+            new_nn_data_idx = np.zeros(
+                (num_links_in_route, (num_features) * (num_neighbors + 1))
+            )
+
+            new_nn_data_idx[:, :num_features] = nn_data[d_idx]
+
+            nn_data_mat = nn_data[d_idx].reshape((route_len, route_len, num_features))
+
+            for idx in range(route_len):
+                for jdx in range(route_len):
+                    for nidx in range(num_neighbors):
+                        if nidx < num_neighbors / 2:
+                            new_nn_data_idx[
+                                jdx * route_len + idx,
+                                (nidx + 1) * num_features : (nidx + 2) * num_features,
+                            ] = nn_data_mat[
+                                int(closest_idxs_for_route[d_idx][idx, jdx, nidx]),
+                                jdx,
+                                :,
+                            ]
+                        else:
+                            new_nn_data_idx[
+                                jdx * route_len + idx,
+                                (nidx + 1) * num_features : (nidx + 2) * num_features,
+                            ] = nn_data_mat[
+                                idx,
+                                int(closest_idxs_for_route[d_idx][idx, jdx, nidx]),
+                                :,
+                            ]
+            new_nn_data.append(new_nn_data_idx)
+
+        return new_nn_data
 
     def __len__(self):
         return len(self.x)

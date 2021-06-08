@@ -10,16 +10,20 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from IPython import embed
+from numpy.core.defchararray import mod
 from tensorboardX import SummaryWriter
 from torch import optim
 from tqdm import tqdm
 
-from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
-from dataloaders.utils import ENDC, OKBLUE, OKRED
+from dataloaders.irl_dataset import (IRLNNDataset, irl_nn_collate,
+                                     seq_binary_mat)
+from dataloaders.utils import ENDC, OKBLUE, OKRED, OKYELLOW
 from eval_utils.score import score
 from models.irl_models import IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
+
+device = torch.device("cpu")
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -122,9 +126,6 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
 
 
 def fit(model, dataloader, writer, config):
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
 
@@ -259,11 +260,10 @@ def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
-    train_data = IRLNNDataset(config.data)
+    train_data = IRLNNDataset(config.data, cache_path=config.training_dir)
     train_loader = torch.utils.data.DataLoader(
         train_data,
         batch_size=config.batch_size,
-        cache_path=config.training_dir,
         collate_fn=irl_nn_collate,
         num_workers=2,
     )
@@ -276,10 +276,11 @@ def main(config):
     )
     num_features = (
         1 + config.data.num_link_features + config.data.num_route_features
-    ) * config.data.num_neighbors
+    ) * (config.data.num_neighbors + 1)
 
     model = IRLModel(num_features=num_features)
-    device = torch.device("cpu")
+    model = model.to(device)
+    print(model)
 
     if hasattr(config, "save_path"):
         chkpt = torch.load(config.save_path, map_location=torch.device(device))
