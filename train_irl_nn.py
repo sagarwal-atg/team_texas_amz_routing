@@ -63,7 +63,7 @@ def compute_tsp_seq_for_route(data, lamb):
 
     ###########
     pred_seq = constrained_tsp.constrained_tsp(
-        objective_matrix, travel_times, time_constraints, depot=label[0], lamb=int(lamb)
+        objective_matrix + travel_times, travel_times, time_constraints, depot=label[0], lamb=int(lamb)
     )
 
     pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
@@ -95,20 +95,24 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
         demo_tv = batch_output[route_idx][1]
         pred_tv = batch_output[route_idx][2]
 
+        travel_times_tensor = torch.from_numpy(tsp_data[route_idx].travel_times)
+
         pred_cost = torch.sum(
             torch.from_numpy(seq_binary_mat(pred_seq)).type(torch.FloatTensor)
-            * thetas_tensor[route_idx]
+            * (thetas_tensor[route_idx] + travel_times_tensor)
         )
         demo_cost = torch.sum(
             torch.from_numpy(tsp_data[route_idx].binary_mat).type(torch.FloatTensor)
-            * thetas_tensor[route_idx]
+            * (thetas_tensor[route_idx] + travel_times_tensor)
         )
 
+
         # route_loss = F.relu(
-        #     (demo_cost + model.lamb * demo_tv) - (pred_cost + model.lamb * pred_tv)
+        #     (demo_cost + model.get_lambda() * demo_tv) - (pred_cost + model.get_lambda() * pred_tv)
         # )
 
-        route_loss = torch.log(demo_cost + model.lamb * demo_tv) - torch.log(pred_cost + model.lamb * pred_tv)
+        route_loss = F.relu(torch.log(demo_cost + model.lamb * demo_tv) - \
+                            torch.log(pred_cost + model.lamb * pred_tv))
 
         loss += route_loss
 
@@ -177,7 +181,7 @@ def fit(model, dataloader, writer, config):
                 )
 
             batch_output = compute_tsp_seq_for_a_batch(
-                batch_data, model.lamb.clone().detach().numpy()
+                batch_data, model.get_lambda().clone().detach().numpy()
             )
 
             loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
@@ -209,7 +213,7 @@ def fit(model, dataloader, writer, config):
                     loss.item(),
                     mean_score,
                     time.time() - start_time,
-                    model.lamb.clone().detach().numpy(),
+                    model.get_lambda().clone().detach().numpy(),
                 )
             )
 
