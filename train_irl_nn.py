@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
 import datetime
-from multiprocessing.pool import ApplyResult
 import pprint
 import time
 from functools import partial
 from multiprocessing import Pool
+from multiprocessing.pool import ApplyResult
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
 from IPython import embed
 from tensorboardX import SummaryWriter
 from torch import optim
+from tqdm import tqdm
 
 from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
+from dataloaders.utils import ENDC, OKBLUE, OKRED
 from eval_utils.score import score
 from models.irl_models import IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
-
-OKRED = "\033[91m"
-OKBLUE = "\033[94m"
-ENDC = "\033[0m"
-OKGREEN = "\033[92m"
-OKYELLOW = "\033[93m"
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -63,7 +58,11 @@ def compute_tsp_seq_for_route(data, lamb):
 
     ###########
     pred_seq = constrained_tsp.constrained_tsp(
-        objective_matrix + travel_times, travel_times, time_constraints, depot=label[0], lamb=int(lamb)
+        objective_matrix + travel_times,
+        travel_times,
+        time_constraints,
+        depot=label[0],
+        lamb=int(lamb),
     )
 
     pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
@@ -106,13 +105,14 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
             * (thetas_tensor[route_idx] + travel_times_tensor)
         )
 
-
         # route_loss = F.relu(
         #     (demo_cost + model.get_lambda() * demo_tv) - (pred_cost + model.get_lambda() * pred_tv)
         # )
 
-        route_loss = F.relu(torch.log(demo_cost + model.lamb * demo_tv) - \
-                            torch.log(pred_cost + model.lamb * pred_tv))
+        route_loss = F.relu(
+            torch.log(demo_cost + model.lamb * demo_tv)
+            - torch.log(pred_cost + model.lamb * pred_tv)
+        )
 
         loss += route_loss
 
@@ -230,9 +230,8 @@ def fit(model, dataloader, writer, config):
             print("Model Saved")
             loss_print_str = OKRED + loss_print_str + ENDC
 
-
         score_print_str = "{}".format(mean_epoch_score)
-        if  best_score > mean_epoch_score:
+        if best_score > mean_epoch_score:
             best_score = mean_epoch_score
             torch.save(
                 model.state_dict(),
@@ -240,9 +239,16 @@ def fit(model, dataloader, writer, config):
             )
             print("Model Saved")
             score_print_str = OKYELLOW + score_print_str + ENDC
-        
-        print( OKBLUE + 
-            "Epoch Loss: " + ENDC + loss_print_str + OKBLUE + " , Epoch Score: " + ENDC + score_print_str
+
+        print(
+            OKBLUE
+            + "Epoch Loss: "
+            + ENDC
+            + loss_print_str
+            + OKBLUE
+            + " , Epoch Score: "
+            + ENDC
+            + score_print_str
         )
 
         writer.add_scalar("Train/loss", mean_epoch_loss, epoch_idx)
@@ -257,6 +263,7 @@ def main(config):
     train_loader = torch.utils.data.DataLoader(
         train_data,
         batch_size=config.batch_size,
+        cache_path=config.training_dir,
         collate_fn=irl_nn_collate,
         num_workers=2,
     )
@@ -267,11 +274,14 @@ def main(config):
             datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), config.name
         )
     )
+    num_features = (
+        1 + config.data.num_link_features + config.data.num_route_features
+    ) * config.data.num_neighbors
 
-    model = IRLModel(num_features=3)
-    device = torch.device('cpu')
+    model = IRLModel(num_features=num_features)
+    device = torch.device("cpu")
 
-    if hasattr(config, 'save_path'):
+    if hasattr(config, "save_path"):
         chkpt = torch.load(config.save_path, map_location=torch.device(device))
         model.load_state_dict(chkpt)
 

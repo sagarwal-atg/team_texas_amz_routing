@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'testing_norm'
+name: 'testing_more_features'
 
 seed: 0
 train_split: 0.7  # Training data is 70% and test data is 30%
@@ -19,12 +19,13 @@ data:
     travel_times_filename: 'travel_times.json'
     package_data_filename: 'package_data.json'
     slice_begin: 0
-    slice_end: 10
+    slice_end: 6000
     max_route_len: 200
-    num_link_features: 1
-    num_route_features: 1
+    num_link_features: 2
+    num_route_features: 2
     tt_pad_value: 5000.0
     route_score: 'high'
+    num_neighbors: 1  # Num of surrounding stops to use for same feature set.
 
 batch_size: 10
 num_train_epochs: 400

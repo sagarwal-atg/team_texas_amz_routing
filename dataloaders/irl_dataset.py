@@ -301,11 +301,8 @@ def irl_nn_collate(batch):
     return [nn_data, other_data, scaled_tc_data]
 
 
-filter_ids = ["RouteID_001948e9-4675-486d-9ec5-912fd8e0770f"]
-
-
 class IRLNNDataset(Dataset):
-    def __init__(self, data_config):
+    def __init__(self, data_config, cache_path=None):
 
         start_time = time.time()
 
@@ -321,6 +318,7 @@ class IRLNNDataset(Dataset):
             route_score = SCORE.LOW
 
         route_ids = route_data.get_routes_with_score_ids(route_score)
+        station_code_dict = route_data.make_station_code_indxes()
 
         route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
         self.route_ids = route_ids
@@ -331,10 +329,9 @@ class IRLNNDataset(Dataset):
 
         def get_route_features(route_id):
             veh_cap = route_data[route_id]._data.executor_capacity_cm3
-            # add any other functions here for more route features
-            return np.array([veh_cap]).reshape(
-                1, 1
-            )  # remove reshape once added more features
+            station_code = station_code_dict[route_data[route_id].get_station_code()]
+
+            return np.array([veh_cap, station_code])
 
         def get_link_features(route_id):
             """
@@ -350,9 +347,10 @@ class IRLNNDataset(Dataset):
 
             zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
             # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
+            geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
 
             # add any other functions here for more link features.
-            return np.array([zone_crossings])
+            return np.array([zone_crossings, geo_dist_mat])
 
         def get_travel_time(route_id):
             """
@@ -407,6 +405,8 @@ class IRLNNDataset(Dataset):
 
             self.x.append(irl_data)
 
+        # if cache_path is not None:
+        #     if os.path(cache_path, 'cache_path.npz')
         self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
 
         print(
@@ -450,14 +450,14 @@ class IRLNNDataset(Dataset):
             route_features[idx] = rf
 
             time_constraints[idx] = np.array(data.time_constraints)
-        
+
         tt_np = np.zeros((1, total_num_links))
         idx_so_far = 0
         for tt_data in travel_times:
             flat_tt = tt_data.flatten()
             tt_np[:, idx_so_far : (idx_so_far + flat_tt.shape[0])] = flat_tt
             idx_so_far += flat_tt.shape[0]
-        
+
         # Time Constraint Scaling
         tc_np = np.zeros((sum([a.shape[0] for a in time_constraints]), 2))
         # idx_so_far = 0
@@ -478,7 +478,7 @@ class IRLNNDataset(Dataset):
         idx_so_far = 0
         for tc_data in time_constraints:
             num_stops = tc_data.shape[0]
-            scaled_tc_data.append(tc_np[idx_so_far:(idx_so_far + num_stops)].tolist())
+            scaled_tc_data.append(tc_np[idx_so_far : (idx_so_far + num_stops)].tolist())
             idx_so_far += num_stops
 
         rf_scaler = preprocessing.StandardScaler().fit(route_features)
@@ -487,7 +487,7 @@ class IRLNNDataset(Dataset):
         idx_so_far = 0
         for idx, data in enumerate(self.x):
             route_len = data.travel_times.shape[0]
-            
+
             nn_data_np = np.zeros(
                 (route_len * route_len, num_link_features + num_route_features + 1)
             )
