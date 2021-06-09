@@ -83,9 +83,7 @@ def compute_tsp_seq_for_route(data, lamb):
 def compute_tsp_seq_for_a_batch(batch_data, lamb):
     pool = Pool(processes=12)
     tsp_func = partial(compute_tsp_seq_for_route, lamb=lamb)
-    batch_output = []
-    for out in tqdm(pool.imap(tsp_func, batch_data)):
-        batch_output.append(out)
+    batch_output = list(tqdm(pool.imap(tsp_func, batch_data), total=len(batch_data)))
     pool.close()
     return batch_output
 

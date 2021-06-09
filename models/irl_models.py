@@ -15,13 +15,7 @@ class IRLModel(nn.Module):
         self.fc2 = nn.Linear(num_features, num_features)
         nn.init.normal_(self.fc2.weight, mean=1, std=0.1)
 
-        self.fc3 = nn.Linear(num_features, num_features)
-        nn.init.normal_(self.fc3.weight, mean=1, std=0.1)
-
-        self.fc4 = nn.Linear(num_features, num_features)
-        nn.init.normal_(self.fc3.weight, mean=1, std=0.1)
-
-        self.fc5 = nn.Linear(num_features, 1)
+        self.fc3 = nn.Linear(num_features, 1)
         nn.init.normal_(self.fc3.weight, mean=1, std=0.1)
 
         param = torch.FloatTensor([1.24744]).type(torch.FloatTensor)
@@ -34,6 +28,6 @@ class IRLModel(nn.Module):
         x = F.relu(self.fc4(x))
         x = F.relu(self.fc5(x))
         return x
-    
+
     def get_lambda(self):
         return torch.clamp(self.lamb, min=0.2)
