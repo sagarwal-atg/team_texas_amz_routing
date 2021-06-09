@@ -1,4 +1,5 @@
 import os
+import pickle
 import time
 from collections import namedtuple
 from functools import total_ordering
@@ -39,6 +40,7 @@ IRLData = namedtuple(
         "travel_time_dict",
         "label",
         "binary_mat",
+        "closest_idxs_for_route",
     ],
 )
 
@@ -399,54 +401,55 @@ class IRLNNDataset(Dataset):
             return stop_ids, travel_time_dict
 
         self.x = []
-        closest_idxs_for_route = []
 
-        for route_id in route_ids:
-            travel_times = get_travel_time(route_id)
-            link_features = get_link_features(route_id)
-            route_features = get_route_features(route_id)
-            time_constraints = get_time_constraints(route_id)
-            label = sequence_data[route_id].get_sorted_route_by_index()
-            stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
-            binary_mat = seq_binary_mat(label)
-
-            irl_data = IRLData(
-                travel_times=travel_times,
-                link_features=link_features,
-                route_features=route_features,
-                time_constraints=time_constraints,
-                stop_ids=stop_ids,
-                travel_time_dict=travel_time_dict,
-                label=label,
-                binary_mat=binary_mat,
-            )
-
-            if data_config.num_neighbors > 1:
-                closest_idxs_for_route.append(
-                    find_closest_idx(travel_times, data_config.num_neighbors)
-                )
-
-            self.x.append(irl_data)
-
-        cache_file_path = os.path.join(cache_path, "cache_path.npz")
-        print(cache_file_path, os.path.isfile(cache_file_path))
+        cache_file_path = os.path.join(cache_path, "cache_path.pickle")
         if os.path.isfile(cache_file_path) and data_config.use_cache:
-            data = np.load(cache_file_path, allow_pickle=True)
-            self.nn_data = data["arr_0"]
-            self.scaled_tc_data = data["arr_1"]
+            with open(cache_file_path, "rb") as file:
+                self.x = pickle.load(file)
             print(
                 OKGREEN
-                + " Using Cached Data !!. Deleted file or change flag "
+                + "Using Cached Data !!. Deleted file or change flag "
                 + "if you have made new changes to the feature generation"
                 + ENDC
             )
         else:
-            self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
-            if len(closest_idxs_for_route) != 0:
-                self.nn_data = self.add_neighbors(
-                    self.nn_data, data_config.num_neighbors, closest_idxs_for_route
+            for route_id in route_ids:
+                travel_times = get_travel_time(route_id)
+                link_features = get_link_features(route_id)
+                route_features = get_route_features(route_id)
+                time_constraints = get_time_constraints(route_id)
+                label = sequence_data[route_id].get_sorted_route_by_index()
+                stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
+                binary_mat = seq_binary_mat(label)
+                if data_config.num_neighbors > 1:
+                    closest_idxs_for_route = find_closest_idx(
+                        travel_times, data_config.num_neighbors
+                    )
+
+                irl_data = IRLData(
+                    travel_times=travel_times,
+                    link_features=link_features,
+                    route_features=route_features,
+                    time_constraints=time_constraints,
+                    stop_ids=stop_ids,
+                    travel_time_dict=travel_time_dict,
+                    label=label,
+                    binary_mat=binary_mat,
+                    closest_idxs_for_route=closest_idxs_for_route,
                 )
-            np.savez(cache_file_path, self.nn_data, self.scaled_tc_data)
+
+                self.x.append(irl_data)
+            with open(cache_file_path, "wb") as f:
+                pickle.dump(self.x, f, protocol=pickle.HIGHEST_PROTOCOL)
+            print(OKGREEN + "Cached Data: {}".format(cache_file_path) + ENDC)
+
+        self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
+        if data_config.num_neighbors > 1:
+            self.nn_data = self.add_neighbors(
+                self.nn_data,
+                data_config.num_neighbors,
+                [d.closest_idxs_for_route for d in self.x],
+            )
 
         print(
             f"Using data from {len(self.x)} routes in {time.time() - start_time} secs"

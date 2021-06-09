@@ -19,7 +19,7 @@ data:
     travel_times_filename: 'travel_times.json'
     package_data_filename: 'package_data.json'
 
-    use_cache: false
+    use_cache: true
     slice_begin: 0
     slice_end: 10
     max_route_len: 200
