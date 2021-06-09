@@ -3,6 +3,7 @@ name: 'small_testing_neighr'
 
 seed: 0
 train_split: 0.7  # Training data is 70% and test data is 30%
+train_on_first: false
 
 
 base_path: '..'  # base path where model weights , tensorboard will be saved
@@ -19,7 +20,7 @@ data:
     travel_times_filename: 'travel_times.json'
     package_data_filename: 'package_data.json'
 
-    use_cache: true
+    use_cache: false
     slice_begin: 0
     slice_end: 10
     max_route_len: 200

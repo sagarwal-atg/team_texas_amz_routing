@@ -15,8 +15,7 @@ from tensorboardX import SummaryWriter
 from torch import optim
 from tqdm import tqdm
 
-from dataloaders.irl_dataset import (IRLNNDataset, irl_nn_collate,
-                                     seq_binary_mat)
+from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
 from dataloaders.utils import ENDC, OKBLUE, OKRED, OKYELLOW
 from eval_utils.score import score
 from models.irl_models import IRLModel
@@ -163,9 +162,6 @@ def fit(model, dataloader, writer, config):
 
                 idx_so_far += route_len * route_len
 
-            for theta in thetas_tensor:
-                theta.retain_grad()
-
             batch_data = []
             for idx, data in enumerate(tsp_data):
                 batch_data.append(
@@ -185,7 +181,7 @@ def fit(model, dataloader, writer, config):
 
             loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
-            if epoch_idx != 0:
+            if epoch_idx != 0 or config.train_on_first:
                 loss.backward()
                 optimizer.step()
 
@@ -283,6 +279,7 @@ def main(config):
     if hasattr(config, "save_path"):
         chkpt = torch.load(config.save_path, map_location=torch.device(device))
         model.load_state_dict(chkpt)
+        print(OKBLUE + "Loaded Weights from :{}".format(config.save_path) + ENDC)
 
     fit(model, train_loader, writer, config)
     print("Finished Training")

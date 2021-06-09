@@ -10,7 +10,7 @@ torchvision
 tensorboardX
 ortools
 tqdm
-geopy
+haversine
 
 ###### Requirements with Version Specifiers ######`
 munch==2.5.0

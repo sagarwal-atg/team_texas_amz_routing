@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Dict, List, Union
 
 import numpy as np
-from geopy.distance import geodesic
+from haversine import Unit, haversine
 from munch import Munch  # used to give dot accessing to dict
 
 SCORE = SimpleNamespace(LOW="Low", MEDIUM="Medium", HIGH="High")
@@ -54,7 +54,7 @@ class RouteDatum:
         stop_a_ = (stop_a_dict["lat"], stop_a_dict["lng"])
         stop_b_ = (stop_b_dict["lat"], stop_b_dict["lng"])
 
-        return geodesic(stop_a_, stop_b_).km
+        return haversine(stop_a_, stop_b_)
 
     def get_geo_dist_mat(self, stop_ids):
         geo_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))

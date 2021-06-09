@@ -421,6 +421,7 @@ class IRLNNDataset(Dataset):
                 label = sequence_data[route_id].get_sorted_route_by_index()
                 stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
                 binary_mat = seq_binary_mat(label)
+                closest_idxs_for_route = None
                 if data_config.num_neighbors > 1:
                     closest_idxs_for_route = find_closest_idx(
                         travel_times, data_config.num_neighbors
