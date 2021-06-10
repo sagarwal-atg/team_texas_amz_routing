@@ -1,6 +1,7 @@
+import os
+import pickle
 import time
 from collections import namedtuple
-from functools import total_ordering
 from typing import Any, List
 
 import numpy as np
@@ -9,6 +10,7 @@ from IPython import embed
 from nptyping import NDArray
 from numpy import concatenate as concat
 from sklearn import preprocessing
+from torch.utils import data
 from torch.utils.data import Dataset
 
 from .data import (
@@ -20,6 +22,7 @@ from .data import (
     TravelTimeData,
     TravelTimeDatum,
 )
+from .utils import ENDC, OKGREEN, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
@@ -36,6 +39,7 @@ IRLData = namedtuple(
         "travel_time_dict",
         "label",
         "binary_mat",
+        "closest_idxs_for_route",
     ],
 )
 
@@ -301,11 +305,22 @@ def irl_nn_collate(batch):
     return [nn_data, other_data, scaled_tc_data]
 
 
-filter_ids = ["RouteID_001948e9-4675-486d-9ec5-912fd8e0770f"]
+def find_closest_idx(travel_times, num_closest):
+    assert num_closest % 2 == 0, "Only even num closest is supported"
+    closest_idx = np.zeros((travel_times.shape[0], travel_times.shape[1], num_closest))
+
+    for idx in range(travel_times.shape[0]):
+        for jdx in range(travel_times.shape[1]):
+            top_n_rows = np.argsort(travel_times[:, jdx])[: int(num_closest / 2)]
+            top_n_cols = np.argsort(travel_times[idx, :])[: int(num_closest / 2)]
+            closest_idx[idx, jdx, :] = np.array([top_n_rows, top_n_cols]).reshape(
+                (num_closest,)
+            )
+    return closest_idx
 
 
 class IRLNNDataset(Dataset):
-    def __init__(self, data_config):
+    def __init__(self, data_config, train_or_test: TrainTest, cache_path=None):
 
         start_time = time.time()
 
@@ -321,8 +336,20 @@ class IRLNNDataset(Dataset):
             route_score = SCORE.LOW
 
         route_ids = route_data.get_routes_with_score_ids(route_score)
+        station_code_dict = route_data.make_station_code_indxes()
 
         route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
+        num_routes_to_use = int(len(route_ids) * data_config.train_split)
+        if train_or_test == TrainTest.train:
+            route_ids = route_ids[:num_routes_to_use]
+            cache_file_path = os.path.join(
+                cache_path, "{}_cache_path.pickle".format(TrainTest.train.name)
+            )
+        elif train_or_test == TrainTest.test:
+            route_ids = route_ids[num_routes_to_use:]
+            cache_file_path = os.path.join(
+                cache_path, "{}_cache_path.pickle".format(TrainTest.test.name)
+            )
         self.route_ids = route_ids
 
         route_lengths = [len(sequence_data[route]) for route in route_ids]
@@ -331,10 +358,9 @@ class IRLNNDataset(Dataset):
 
         def get_route_features(route_id):
             veh_cap = route_data[route_id]._data.executor_capacity_cm3
-            # add any other functions here for more route features
-            return np.array([veh_cap]).reshape(
-                1, 1
-            )  # remove reshape once added more features
+            station_code = station_code_dict[route_data[route_id].get_station_code()]
+
+            return np.array([veh_cap, station_code])
 
         def get_link_features(route_id):
             """
@@ -350,9 +376,10 @@ class IRLNNDataset(Dataset):
 
             zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
             # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
+            geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
 
             # add any other functions here for more link features.
-            return np.array([zone_crossings])
+            return np.array([zone_crossings, geo_dist_mat])
 
         def get_travel_time(route_id):
             """
@@ -385,29 +412,54 @@ class IRLNNDataset(Dataset):
 
         self.x = []
 
-        for route_id in route_ids:
-            travel_times = get_travel_time(route_id)
-            link_features = get_link_features(route_id)
-            route_features = get_route_features(route_id)
-            time_constraints = get_time_constraints(route_id)
-            label = sequence_data[route_id].get_sorted_route_by_index()
-            stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
-            binary_mat = seq_binary_mat(label)
-
-            irl_data = IRLData(
-                travel_times=travel_times,
-                link_features=link_features,
-                route_features=route_features,
-                time_constraints=time_constraints,
-                stop_ids=stop_ids,
-                travel_time_dict=travel_time_dict,
-                label=label,
-                binary_mat=binary_mat,
+        if os.path.isfile(cache_file_path) and data_config.use_cache:
+            with open(cache_file_path, "rb") as file:
+                self.x = pickle.load(file)
+            print(
+                OKGREEN
+                + "Using Cached Data !!. Deleted file or change flag "
+                + "if you have made new changes to the feature generation"
+                + ENDC
             )
+        else:
+            for route_id in route_ids:
+                travel_times = get_travel_time(route_id)
+                link_features = get_link_features(route_id)
+                route_features = get_route_features(route_id)
+                time_constraints = get_time_constraints(route_id)
+                label = sequence_data[route_id].get_sorted_route_by_index()
+                stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
+                binary_mat = seq_binary_mat(label)
+                closest_idxs_for_route = None
+                if data_config.num_neighbors > 1:
+                    closest_idxs_for_route = find_closest_idx(
+                        travel_times, data_config.num_neighbors
+                    )
 
-            self.x.append(irl_data)
+                irl_data = IRLData(
+                    travel_times=travel_times,
+                    link_features=link_features,
+                    route_features=route_features,
+                    time_constraints=time_constraints,
+                    stop_ids=stop_ids,
+                    travel_time_dict=travel_time_dict,
+                    label=label,
+                    binary_mat=binary_mat,
+                    closest_idxs_for_route=closest_idxs_for_route,
+                )
+
+                self.x.append(irl_data)
+            with open(cache_file_path, "wb") as f:
+                pickle.dump(self.x, f, protocol=pickle.HIGHEST_PROTOCOL)
+            print(OKGREEN + "Cached Data: {}".format(cache_file_path) + ENDC)
 
         self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
+        if data_config.num_neighbors > 1:
+            self.nn_data = self.add_neighbors(
+                self.nn_data,
+                data_config.num_neighbors,
+                [d.closest_idxs_for_route for d in self.x],
+            )
 
         print(
             f"Using data from {len(self.x)} routes in {time.time() - start_time} secs"
@@ -425,14 +477,14 @@ class IRLNNDataset(Dataset):
 
         transformed_data = [None] * num_routes
 
-        total_num_links = 0
+        self.total_num_links = 0
         for idx, data in enumerate(self.x):
             tt = data.travel_times
             assert len(tt.shape) == 2
             route_len = tt.shape[0]
 
             travel_times[idx] = tt
-            total_num_links += tt.shape[0] * tt.shape[0]
+            self.total_num_links += tt.shape[0] * tt.shape[0]
 
             lf = data.link_features
 
@@ -450,14 +502,14 @@ class IRLNNDataset(Dataset):
             route_features[idx] = rf
 
             time_constraints[idx] = np.array(data.time_constraints)
-        
-        tt_np = np.zeros((1, total_num_links))
+
+        tt_np = np.zeros((1, self.total_num_links))
         idx_so_far = 0
         for tt_data in travel_times:
             flat_tt = tt_data.flatten()
             tt_np[:, idx_so_far : (idx_so_far + flat_tt.shape[0])] = flat_tt
             idx_so_far += flat_tt.shape[0]
-        
+
         # Time Constraint Scaling
         tc_np = np.zeros((sum([a.shape[0] for a in time_constraints]), 2))
         # idx_so_far = 0
@@ -478,7 +530,7 @@ class IRLNNDataset(Dataset):
         idx_so_far = 0
         for tc_data in time_constraints:
             num_stops = tc_data.shape[0]
-            scaled_tc_data.append(tc_np[idx_so_far:(idx_so_far + num_stops)].tolist())
+            scaled_tc_data.append(tc_np[idx_so_far : (idx_so_far + num_stops)].tolist())
             idx_so_far += num_stops
 
         rf_scaler = preprocessing.StandardScaler().fit(route_features)
@@ -487,7 +539,7 @@ class IRLNNDataset(Dataset):
         idx_so_far = 0
         for idx, data in enumerate(self.x):
             route_len = data.travel_times.shape[0]
-            
+
             nn_data_np = np.zeros(
                 (route_len * route_len, num_link_features + num_route_features + 1)
             )
@@ -507,6 +559,46 @@ class IRLNNDataset(Dataset):
             transformed_data[idx] = nn_data_np
 
         return transformed_data, scaled_tc_data
+
+    def add_neighbors(self, nn_data, num_neighbors, closest_idxs_for_route):
+        new_nn_data = []
+        num_features = nn_data[0].shape[1]
+
+        for d_idx in range(len(closest_idxs_for_route)):
+            route_len, route_len, _ = closest_idxs_for_route[d_idx].shape
+            num_links_in_route = route_len * route_len
+            new_nn_data_idx = np.zeros(
+                (num_links_in_route, (num_features) * (num_neighbors + 1))
+            )
+
+            new_nn_data_idx[:, :num_features] = nn_data[d_idx]
+
+            nn_data_mat = nn_data[d_idx].reshape((route_len, route_len, num_features))
+
+            for idx in range(route_len):
+                for jdx in range(route_len):
+                    for nidx in range(num_neighbors):
+                        if nidx < num_neighbors / 2:
+                            new_nn_data_idx[
+                                jdx * route_len + idx,
+                                (nidx + 1) * num_features : (nidx + 2) * num_features,
+                            ] = nn_data_mat[
+                                int(closest_idxs_for_route[d_idx][idx, jdx, nidx]),
+                                jdx,
+                                :,
+                            ]
+                        else:
+                            new_nn_data_idx[
+                                jdx * route_len + idx,
+                                (nidx + 1) * num_features : (nidx + 2) * num_features,
+                            ] = nn_data_mat[
+                                idx,
+                                int(closest_idxs_for_route[d_idx][idx, jdx, nidx]),
+                                :,
+                            ]
+            new_nn_data.append(new_nn_data_idx)
+
+        return new_nn_data
 
     def __len__(self):
         return len(self.x)

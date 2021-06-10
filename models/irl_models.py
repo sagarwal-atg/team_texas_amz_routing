@@ -25,6 +25,7 @@ class IRLModel(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        # y_hat = self.fc3(x)
-        # y_hat = torch.exp(x)
         return x
+
+    def get_lambda(self):
+        return torch.clamp(self.lamb, min=0.2)

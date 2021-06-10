@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'linear_irl_batch_all_routes_eval'
+name: 'eval'
 
 seed: 0
 train_split: 0.7  # Training data is 70% and test data is 30%
@@ -18,9 +18,17 @@ data:
     sequence_filename: 'actual_sequences.json'
     travel_times_filename: 'travel_times.json'
     package_data_filename: 'package_data.json'
-    slice_begin: 0
-    slice_end: 600
-    route_score: 'medium'
 
-theta: 35.38970464
-lamb: 0.24744489418041002
+    use_cache: false
+    slice_begin: 0
+    slice_end: 500
+    max_route_len: 200
+    num_link_features: 1
+    num_route_features: 1
+    tt_pad_value: 5000.0
+    route_score: 'medium'
+    num_neighbors: 0  # Num of surrounding stops to use for same feature set.
+
+batch_size: 32
+
+save_path: '/Users/Somi/amazon_challenge/trained_models/10_routes_log/best_score_10_routes_log.pt'

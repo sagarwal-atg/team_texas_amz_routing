@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import datetime
-from multiprocessing.pool import ApplyResult
+import multiprocessing
 import pprint
 import time
 from functools import partial
@@ -9,22 +9,19 @@ from multiprocessing import Pool
 import numpy as np
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
 from IPython import embed
 from tensorboardX import SummaryWriter
 from torch import optim
+from tqdm import tqdm
 
 from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
+from dataloaders.utils import ENDC, OKBLUE, OKGREEN, OKRED, OKYELLOW, TrainTest
 from eval_utils.score import score
 from models.irl_models import IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
 
-OKRED = "\033[91m"
-OKBLUE = "\033[94m"
-ENDC = "\033[0m"
-OKGREEN = "\033[92m"
-OKYELLOW = "\033[93m"
+device = torch.device("cpu")
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -63,7 +60,11 @@ def compute_tsp_seq_for_route(data, lamb):
 
     ###########
     pred_seq = constrained_tsp.constrained_tsp(
-        objective_matrix, travel_times, time_constraints, depot=label[0], lamb=int(lamb)
+        objective_matrix + travel_times,
+        travel_times,
+        time_constraints,
+        depot=label[0],
+        lamb=int(lamb),
     )
 
     pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
@@ -78,11 +79,9 @@ def compute_tsp_seq_for_route(data, lamb):
 
 
 def compute_tsp_seq_for_a_batch(batch_data, lamb):
-    pool = Pool(processes=12)
+    pool = Pool(processes=multiprocessing.cpu_count())
     tsp_func = partial(compute_tsp_seq_for_route, lamb=lamb)
-    batch_output = []
-    for out in tqdm(pool.imap(tsp_func, batch_data)):
-        batch_output.append(out)
+    batch_output = list(tqdm(pool.imap(tsp_func, batch_data), total=len(batch_data)))
     pool.close()
     return batch_output
 
@@ -95,20 +94,25 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
         demo_tv = batch_output[route_idx][1]
         pred_tv = batch_output[route_idx][2]
 
+        travel_times_tensor = torch.from_numpy(tsp_data[route_idx].travel_times)
+
         pred_cost = torch.sum(
             torch.from_numpy(seq_binary_mat(pred_seq)).type(torch.FloatTensor)
-            * thetas_tensor[route_idx]
+            * (thetas_tensor[route_idx] + travel_times_tensor)
         )
         demo_cost = torch.sum(
             torch.from_numpy(tsp_data[route_idx].binary_mat).type(torch.FloatTensor)
-            * thetas_tensor[route_idx]
+            * (thetas_tensor[route_idx] + travel_times_tensor)
         )
 
         # route_loss = F.relu(
-        #     (demo_cost + model.lamb * demo_tv) - (pred_cost + model.lamb * pred_tv)
+        #     (demo_cost + model.get_lambda() * demo_tv) - (pred_cost + model.get_lambda() * pred_tv)
         # )
 
-        route_loss = torch.log(demo_cost + model.lamb * demo_tv) - torch.log(pred_cost + model.lamb * pred_tv)
+        route_loss = F.relu(
+            torch.log(demo_cost + model.lamb * demo_tv)
+            - torch.log(pred_cost + model.lamb * pred_tv)
+        )
 
         loss += route_loss
 
@@ -117,141 +121,185 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
     return loss
 
 
-def fit(model, dataloader, writer, config):
+def process(model, nn_data, tsp_data):
+    stack_nn_data = torch.cat(nn_data, 0)
+    stack_nn_data = stack_nn_data.to(device)
+    obj_matrix = model(stack_nn_data)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
+    idx_so_far = 0
+    thetas_np = []
+    thetas_tensor = []
+    for idx, data in enumerate(tsp_data):
+        route_len = data.travel_times.shape[0]
+        thetas_tensor.append(
+            obj_matrix[idx_so_far : (idx_so_far + (route_len * route_len))].reshape(
+                (route_len, route_len)
+            )
+        )
+
+        theta = thetas_tensor[idx].clone()
+        theta = theta.detach().numpy()
+        thetas_np.append(theta)
+
+        idx_so_far += route_len * route_len
+
+    batch_data = []
+    for idx, data in enumerate(tsp_data):
+        batch_data.append(
+            (
+                thetas_np[idx],
+                data.travel_times,
+                data.time_constraints,
+                data.stop_ids,
+                data.travel_time_dict,
+                data.label,
+            )
+        )
+
+    batch_output = compute_tsp_seq_for_a_batch(
+        batch_data, model.get_lambda().clone().detach().numpy()
+    )
+
+    loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
+    return loss, batch_output
+
+
+def train(model, dataloader, writer, config, epoch_idx, best_loss, best_score):
 
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
 
     model.train()
 
-    best_loss = 1e10
-    best_score = 1e10
+    train_score = []
+    train_loss = []
 
-    # loop over the dataset multiple times
-    for epoch_idx in range(config.num_train_epochs):
-        epoch_score = 0
-        epoch_loss = 0
+    for d_idx, data in enumerate(dataloader):
+        start_time = time.time()
+        nn_data, tsp_data, scaled_tc_data = data
+        optimizer.zero_grad()
 
-        for d_idx, data in enumerate(dataloader):
-            start_time = time.time()
-            nn_data, tsp_data, scaled_tc_data = data
-            optimizer.zero_grad()
+        loss, batch_output = process(model, nn_data, tsp_data)
 
-            stack_nn_data = torch.cat(nn_data, 0)
-            stack_nn_data = stack_nn_data.to(device)
-            obj_matrix = model(stack_nn_data)
+        if epoch_idx != 0 or config.train_on_first:
+            loss.backward()
+            optimizer.step()
 
-            idx_so_far = 0
-            thetas_np = []
-            thetas_tensor = []
-            for idx, data in enumerate(tsp_data):
-                route_len = data.travel_times.shape[0]
-                thetas_tensor.append(
-                    obj_matrix[
-                        idx_so_far : (idx_so_far + (route_len * route_len))
-                    ].reshape((route_len, route_len))
-                )
+        res = list(zip(*batch_output))
+        batch_seq_score = np.array(res[3])
 
-                theta = thetas_tensor[idx].clone()
-                theta = theta.detach().numpy()
-                thetas_np.append(theta)
+        mean_score = np.mean(batch_seq_score)
+        train_loss.append(loss.item())
+        train_score.append(mean_score)
 
-                idx_so_far += route_len * route_len
-
-            for theta in thetas_tensor:
-                theta.retain_grad()
-
-            batch_data = []
-            for idx, data in enumerate(tsp_data):
-                batch_data.append(
-                    (
-                        thetas_np[idx],
-                        data.travel_times,
-                        data.time_constraints,
-                        data.stop_ids,
-                        data.travel_time_dict,
-                        data.label,
-                    )
-                )
-
-            batch_output = compute_tsp_seq_for_a_batch(
-                batch_data, model.lamb.clone().detach().numpy()
-            )
-
-            loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
-
-            if epoch_idx != 0:
-                loss.backward()
-                optimizer.step()
-
-            res = list(zip(*batch_output))
-            batch_seq_score = np.array(res[3])
-
-            mean_score = np.mean(batch_seq_score)
-            epoch_loss += loss.item()
-            epoch_score += mean_score
-
-            writer.add_scalar(
-                "Train/batch_route_loss", loss.item(), epoch_idx * len(dataloader) + idx
-            )
-            writer.add_scalar(
-                "Train/batch_route_score",
-                mean_score,
-                epoch_idx * len(dataloader) + idx,
-            )
-
-            print(
-                "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}".format(
-                    epoch_idx,
-                    d_idx,
-                    loss.item(),
-                    mean_score,
-                    time.time() - start_time,
-                    model.lamb.clone().detach().numpy(),
-                )
-            )
-
-        mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader.dataset))
-        mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader.dataset))
-
-        loss_print_str = "{}".format(mean_epoch_loss)
-        if best_loss > mean_epoch_loss:
-            best_loss = mean_epoch_loss
-            torch.save(
-                model.state_dict(),
-                config.training_dir + "/best_model_{}.pt".format(config.name),
-            )
-            print("Model Saved")
-            loss_print_str = OKRED + loss_print_str + ENDC
-
-
-        score_print_str = "{}".format(mean_epoch_score)
-        if  best_score > mean_epoch_score:
-            best_score = mean_epoch_score
-            torch.save(
-                model.state_dict(),
-                config.training_dir + "/best_score_{}.pt".format(config.name),
-            )
-            print("Model Saved")
-            score_print_str = OKYELLOW + score_print_str + ENDC
-        
-        print( OKBLUE + 
-            "Epoch Loss: " + ENDC + loss_print_str + OKBLUE + " , Epoch Score: " + ENDC + score_print_str
+        writer.add_scalar(
+            "Train/batch_route_loss", loss.item(), epoch_idx * len(dataloader) + d_idx
+        )
+        writer.add_scalar(
+            "Train/batch_route_score",
+            mean_score,
+            epoch_idx * len(dataloader) + d_idx,
         )
 
-        writer.add_scalar("Train/loss", mean_epoch_loss, epoch_idx)
-        writer.add_scalar("Train/score", mean_epoch_score, epoch_idx)
+        print(
+            "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}".format(
+                epoch_idx,
+                d_idx,
+                loss.item(),
+                mean_score,
+                time.time() - start_time,
+                model.get_lambda().clone().detach().numpy(),
+            )
+        )
+
+    mean_train_loss = sum(train_loss) / len(train_loss)
+    mean_train_score = sum(train_score) / len(train_score)
+
+    loss_print_str = "{}".format(mean_train_loss)
+    if best_loss > mean_train_loss:
+        best_loss = mean_train_loss
+        torch.save(
+            model.state_dict(),
+            config.training_dir + "/best_model_{}.pt".format(config.name),
+        )
+        print("Model Saved")
+        loss_print_str = OKRED + loss_print_str + ENDC
+
+    score_print_str = "{}".format(mean_train_score)
+    if best_score > mean_train_score:
+        best_score = mean_train_score
+        torch.save(
+            model.state_dict(),
+            config.training_dir + "/best_score_{}.pt".format(config.name),
+        )
+        print("Model Saved")
+        score_print_str = OKYELLOW + score_print_str + ENDC
+
+    print(
+        OKBLUE
+        + "Loss: "
+        + ENDC
+        + loss_print_str
+        + OKBLUE
+        + " , Score: "
+        + ENDC
+        + score_print_str
+    )
+
+    writer.add_scalar("Train/loss", mean_train_loss, epoch_idx)
+    writer.add_scalar("Train/score", mean_train_score, epoch_idx)
+
+    return best_loss, best_score
+
+
+def eval(model, dataloader, writer, config, epoch_idx):
+    model.eval()
+
+    eval_loss = []
+    eval_score = []
+
+    for d_idx, data in enumerate(dataloader):
+        nn_data, tsp_data, scaled_tc_data = data
+
+        loss, batch_output = process(model, nn_data, tsp_data)
+
+        res = list(zip(*batch_output))
+        batch_seq_score = np.array(res[3])
+
+        mean_score = np.mean(batch_seq_score)
+        eval_loss.append(loss.item())
+        eval_score.append(mean_score)
+
+    mean_eval_loss = sum(eval_loss) / len(eval_loss)
+    mean_eval_score = sum(eval_score) / len(eval_score)
+
+    print(
+        OKGREEN
+        + "Eval Loss: {}, Eval Score: {}".format(mean_eval_loss, mean_eval_score)
+        + ENDC
+    )
+    writer.add_scalar("Eval/loss", mean_eval_loss, epoch_idx)
+    writer.add_scalar("Eval/score", mean_eval_score, epoch_idx)
 
 
 def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
-    train_data = IRLNNDataset(config.data)
+    train_data = IRLNNDataset(
+        config.data, train_or_test=TrainTest.train, cache_path=config.training_dir
+    )
     train_loader = torch.utils.data.DataLoader(
         train_data,
+        batch_size=config.batch_size,
+        collate_fn=irl_nn_collate,
+        num_workers=2,
+    )
+
+    test_data = IRLNNDataset(
+        config.data, train_or_test=TrainTest.test, cache_path=config.training_dir
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_data,
         batch_size=config.batch_size,
         collate_fn=irl_nn_collate,
         num_workers=2,
@@ -263,15 +311,27 @@ def main(config):
             datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), config.name
         )
     )
+    num_features = (
+        1 + config.data.num_link_features + config.data.num_route_features
+    ) * (config.data.num_neighbors + 1)
 
-    model = IRLModel(num_features=3)
-    device = torch.device('cpu')
+    model = IRLModel(num_features=num_features)
+    model = model.to(device)
+    print(model)
 
-    if hasattr(config, 'save_path'):
+    if hasattr(config, "save_path"):
         chkpt = torch.load(config.save_path, map_location=torch.device(device))
         model.load_state_dict(chkpt)
+        print(OKBLUE + "Loaded Weights from :{}".format(config.save_path) + ENDC)
 
-    fit(model, train_loader, writer, config)
+    best_loss = 1e10
+    best_score = 1e10
+    for epoch_idx in range(config.num_train_epochs):
+        best_loss, best_score = train(
+            model, train_loader, writer, config, epoch_idx, best_loss, best_score
+        )
+        if not epoch_idx % config.eval_iter:
+            eval(model, test_loader, writer, config, epoch_idx)
     print("Finished Training")
 
 

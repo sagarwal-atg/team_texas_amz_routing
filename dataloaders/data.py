@@ -1,17 +1,16 @@
-
-from types import SimpleNamespace
 import json
-from typing import Dict, List, Union
-import numpy as np
 from datetime import datetime
+from types import SimpleNamespace
+from typing import Dict, List, Union
 
+import numpy as np
+from haversine import Unit, haversine
 from munch import Munch  # used to give dot accessing to dict
 
-SCORE = SimpleNamespace(LOW='Low', MEDIUM='Medium', HIGH='High')
+SCORE = SimpleNamespace(LOW="Low", MEDIUM="Medium", HIGH="High")
 
 
 class RouteDatum:
-
     def __init__(self, data):
         self._data = Munch(data)
 
@@ -29,8 +28,9 @@ class RouteDatum:
         """
         zone_d = {}
         for key, stop in self.get_stops(stop_ids).items():
-            zone_d[key] = stop['zone_id'] if isinstance(
-                stop['zone_id'], str) else 'zone_' + key
+            zone_d[key] = (
+                stop["zone_id"] if isinstance(stop["zone_id"], str) else "zone_" + key
+            )
         return zone_d
 
     def get_score(self):
@@ -41,7 +41,29 @@ class RouteDatum:
 
     def get_start_time(self):
         return datetime.fromisoformat(
-            self._data.date_YYYY_MM_DD + ' ' + self._data.departure_time_utc)
+            self._data.date_YYYY_MM_DD + " " + self._data.departure_time_utc
+        )
+
+    def get_station_code(self):
+        return self._data.station_code
+
+    def get_geo_dist(self, stop_a, stop_b):
+        stop_a_dict = self._data.stops[stop_a]
+        stop_b_dict = self._data.stops[stop_b]
+
+        stop_a_ = (stop_a_dict["lat"], stop_a_dict["lng"])
+        stop_b_ = (stop_b_dict["lat"], stop_b_dict["lng"])
+
+        return haversine(stop_a_, stop_b_)
+
+    def get_geo_dist_mat(self, stop_ids):
+        geo_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))
+        for adx, stop_id_a in enumerate(stop_ids):
+            for bdx, stop_id_b in enumerate(stop_ids):
+                # TODO small optimization: use the same dist for ab and ba
+                geo_dist_mat[adx, bdx] = self.get_geo_dist(stop_id_a, stop_id_b)
+
+        return geo_dist_mat
 
 
 class SequenceDatum:
@@ -55,7 +77,7 @@ class SequenceDatum:
             ex: {'actual': {'A': 0, 'B': 2, 'C': 1}}
         """
         # self.tt_dicts = data['actual']
-        self._stops = data['actual']
+        self._stops = data["actual"]
         # sorted_data = dict(sorted(self.tt_dicts.items(), key=lambda item: item[1]))
         # self._stops = sorted_data
 
@@ -74,8 +96,7 @@ class SequenceDatum:
         return sorted(self._stops, key=lambda k: self._stops[k])
 
     def get_sorted_route_by_index(self):
-        """
-        """
+        """ """
         labels = np.argsort(list(self._stops.values()))
         # labels = np.arange(len(self._stops))
         return labels
@@ -90,8 +111,9 @@ class SequenceDatum:
         """
         stops_ordered = self._get_actual_order()
         next_stop = {
-            stop: next_stop for stop, next_stop in zip(
-                np.roll(stops_ordered, 1), stops_ordered)}
+            stop: next_stop
+            for stop, next_stop in zip(np.roll(stops_ordered, 1), stops_ordered)
+        }
         stop_idx = {k: i for i, k in enumerate(self._stops)}
         labels = [stop_idx[next_stop[stop]] for stop in stop_idx.keys()]
         return labels
@@ -120,53 +142,49 @@ class PackageDatum:
     def find_service_times(self, stop_ids):
         time_windows = []
         for stop_id in stop_ids:
-            time_windows.append(
-                self.find_service_time_for_stop(stop_id))
+            time_windows.append(self.find_service_time_for_stop(stop_id))
         return time_windows
 
     def find_service_time_for_stop(self, stop_id):
         packages = self._data[stop_id]
         t = 0
         for p, pinfo in packages.items():
-            t = t + pinfo['planned_service_time_seconds']
+            t = t + pinfo["planned_service_time_seconds"]
         return t
 
     def find_time_windows(self, route_start, stop_ids):
         time_windows = []
         for stop_id in stop_ids:
-            time_windows.append(
-                self.find_time_window_for_stop(route_start, stop_id))
+            time_windows.append(self.find_time_window_for_stop(route_start, stop_id))
         return time_windows
 
     def find_time_window_for_stop(self, route_start, stop_id):
         """Inputs: Key: route_id
-                   Stop_id: 2 alphabet id for stop"""
+        Stop_id: 2 alphabet id for stop"""
 
         packages = self._data[stop_id]
         end_stop = datetime.max
         start_stop = route_start
         delta_max = end_stop - start_stop
         for pid, pinfo in packages.items():
-            if isinstance(pinfo['time_window']['end_time_utc'], str):
-                end = datetime.fromisoformat(
-                    pinfo['time_window']['end_time_utc'])
-                start = datetime.fromisoformat(
-                    pinfo['time_window']['start_time_utc'])
+            if isinstance(pinfo["time_window"]["end_time_utc"], str):
+                end = datetime.fromisoformat(pinfo["time_window"]["end_time_utc"])
+                start = datetime.fromisoformat(pinfo["time_window"]["start_time_utc"])
                 end_stop = min(end, end_stop)
                 start_stop = max(start, start_stop)
-        delta = (end_stop - start_stop)
+        delta = end_stop - start_stop
         if delta < delta_max:
             return (
                 int((start_stop - route_start).total_seconds()),
-                int((end_stop - route_start).total_seconds()))
+                int((end_stop - route_start).total_seconds()),
+            )
         else:
             return (0, 57600)
 
 
 class AmazonData:
     def __init__(self, data, constructor: Union[RouteDatum, SequenceDatum]):
-        self._data = {
-            route_id: constructor(value) for route_id, value in data.items()}
+        self._data = {route_id: constructor(value) for route_id, value in data.items()}
 
     @classmethod
     def from_file(cls, filepath: str):
@@ -195,9 +213,20 @@ class RouteData(AmazonData):
         super().__init__(data, RouteDatum)
 
     def get_routes_with_score_ids(self, score):
-        res = [route_id for route_id, route in self._data.items()
-               if route.is_score(score)]
+        res = [
+            route_id for route_id, route in self._data.items() if route.is_score(score)
+        ]
         return res
+
+    def make_station_code_indxes(self):
+        station_codes_dict = dict()
+        station_index = 0
+        for route_id, _ in self._data.items():
+            station_code = self._data[route_id]._data["station_code"]
+            if station_code not in station_codes_dict:
+                station_codes_dict[station_code] = station_index
+                station_index += 1
+        return station_codes_dict
 
 
 class TravelTimeData(AmazonData):
