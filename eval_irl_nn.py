@@ -18,7 +18,7 @@ from tqdm import tqdm
 from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate
 from dataloaders.utils import ENDC, OKBLUE
 from models.irl_models import IRLModel
-from train_irl_nn import compute_tsp_seq_for_a_batch, irl_loss
+from train_irl_nn import process
 from training_utils.arg_utils import get_args, setup_training_output
 
 device = torch.device("cpu")
@@ -32,52 +32,11 @@ def eval(model, dataloader, config):
     epoch_score = 0
     epoch_loss = 0
 
-    for d_idx, data in enumerate(tqdm(dataloader)):
+    for d_idx, data in enumerate(dataloader):
         start_time = time.time()
         nn_data, tsp_data, scaled_tc_data = data
 
-        stack_nn_data = torch.cat(nn_data, 0)
-        stack_nn_data = stack_nn_data.to(device)
-        obj_matrix = model(stack_nn_data)
-
-        idx_so_far = 0
-        thetas_np = []
-        thetas_tensor = []
-        for idx, data in enumerate(tsp_data):
-            route_len = data.travel_times.shape[0]
-            thetas_tensor.append(
-                obj_matrix[idx_so_far : (idx_so_far + (route_len * route_len))].reshape(
-                    (route_len, route_len)
-                )
-            )
-
-            theta = thetas_tensor[idx].clone()
-            theta = theta.detach().numpy()
-            thetas_np.append(theta)
-
-            idx_so_far += route_len * route_len
-
-        for theta in thetas_tensor:
-            theta.retain_grad()
-
-        batch_data = []
-        for idx, data in enumerate(tsp_data):
-            batch_data.append(
-                (
-                    thetas_np[idx],
-                    data.travel_times,
-                    data.time_constraints,
-                    data.stop_ids,
-                    data.travel_time_dict,
-                    data.label,
-                )
-            )
-
-        batch_output = compute_tsp_seq_for_a_batch(
-            batch_data, model.get_lambda().clone().detach().numpy()
-        )
-
-        loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
+        loss, batch_output = process(model, nn_data, tsp_data)
 
         res = list(zip(*batch_output))
         batch_seq_score = np.array(res[3])

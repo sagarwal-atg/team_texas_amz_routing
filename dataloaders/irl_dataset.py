@@ -2,7 +2,6 @@ import os
 import pickle
 import time
 from collections import namedtuple
-from functools import total_ordering
 from typing import Any, List
 
 import numpy as np
@@ -23,7 +22,7 @@ from .data import (
     TravelTimeData,
     TravelTimeDatum,
 )
-from .utils import ENDC, OKGREEN
+from .utils import ENDC, OKGREEN, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
@@ -321,7 +320,7 @@ def find_closest_idx(travel_times, num_closest):
 
 
 class IRLNNDataset(Dataset):
-    def __init__(self, data_config, cache_path=None):
+    def __init__(self, data_config, train_or_test: TrainTest, cache_path=None):
 
         start_time = time.time()
 
@@ -340,6 +339,17 @@ class IRLNNDataset(Dataset):
         station_code_dict = route_data.make_station_code_indxes()
 
         route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
+        num_routes_to_use = int(len(route_ids) * data_config.train_split)
+        if train_or_test == TrainTest.train:
+            route_ids = route_ids[:num_routes_to_use]
+            cache_file_path = os.path.join(
+                cache_path, "{}_cache_path.pickle".format(TrainTest.train.name)
+            )
+        elif train_or_test == TrainTest.test:
+            route_ids = route_ids[num_routes_to_use:]
+            cache_file_path = os.path.join(
+                cache_path, "{}_cache_path.pickle".format(TrainTest.test.name)
+            )
         self.route_ids = route_ids
 
         route_lengths = [len(sequence_data[route]) for route in route_ids]
@@ -402,7 +412,6 @@ class IRLNNDataset(Dataset):
 
         self.x = []
 
-        cache_file_path = os.path.join(cache_path, "cache_path.pickle")
         if os.path.isfile(cache_file_path) and data_config.use_cache:
             with open(cache_file_path, "rb") as file:
                 self.x = pickle.load(file)
