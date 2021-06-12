@@ -14,7 +14,6 @@ from torch.utils import data
 from torch.utils.data import Dataset
 
 from .data import (
-    SCORE,
     PackageData,
     RouteData,
     RouteDatum,
@@ -22,7 +21,7 @@ from .data import (
     TravelTimeData,
     TravelTimeDatum,
 )
-from .utils import ENDC, OKGREEN, TrainTest
+from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
@@ -324,93 +323,14 @@ class IRLNNDataset(Dataset):
 
         start_time = time.time()
 
-        route_data = RouteData.from_file(data_config.route_path)
-        sequence_data = SequenceData.from_file(data_config.sequence_path)
-        travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
-        package_data = PackageData.from_file(data_config.package_path)
-
-        route_score = SCORE.HIGH
-        if data_config.route_score == "medium":
-            route_score = SCORE.MEDIUM
-        if data_config.route_score == "low":
-            route_score = SCORE.LOW
-
-        route_ids = route_data.get_routes_with_score_ids(route_score)
-        station_code_dict = route_data.make_station_code_indxes()
-
-        route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
-        num_routes_to_use = int(len(route_ids) * data_config.train_split)
         if train_or_test == TrainTest.train:
-            route_ids = route_ids[:num_routes_to_use]
             cache_file_path = os.path.join(
                 cache_path, "{}_cache_path.pickle".format(TrainTest.train.name)
             )
         elif train_or_test == TrainTest.test:
-            route_ids = route_ids[num_routes_to_use:]
             cache_file_path = os.path.join(
                 cache_path, "{}_cache_path.pickle".format(TrainTest.test.name)
             )
-        self.route_ids = route_ids
-
-        route_lengths = [len(sequence_data[route]) for route in route_ids]
-        self.route_lengths = route_lengths
-        self.max_route_len = max(route_lengths)
-
-        def get_route_features(route_id):
-            veh_cap = route_data[route_id]._data.executor_capacity_cm3
-            station_code = station_code_dict[route_data[route_id].get_station_code()]
-
-            return np.array([veh_cap, station_code])
-
-        def get_link_features(route_id):
-            """
-            Returns: a matrix of shape [n, route_len, route_len] where n is the number of features
-            """
-            stop_ids = sequence_data[route_id].get_stop_ids()
-
-            # add service time to travel time matrix
-            # times = extract_travel_times(travel_time_data[route_id], stop_ids)
-            # ser_times = package_data.find_service_times(stop_ids)
-            # times += ser_times
-            # times = right_pad2d(times, self.max_route_len, 0)
-
-            zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
-            # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
-            geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
-
-            # add any other functions here for more link features.
-            return np.array([zone_crossings, geo_dist_mat])
-
-        def get_travel_time(route_id):
-            """
-            Returns: a matrix of shape [route_len, route_len]
-            """
-            stop_ids = sequence_data[route_id].get_stop_ids()
-
-            # add service time to travel time matrix
-            times = extract_travel_times(travel_time_data[route_id], stop_ids)
-            ser_times = package_data[route_id].find_service_times(stop_ids)
-            times += ser_times
-
-            return times
-
-        def get_time_constraints(route_id):
-            """
-            Returns: a list of tuples [start, end]. Start and end time of the constraint. None if passed no constraints.
-            """
-            stop_ids = sequence_data[route_id].get_stop_ids()
-            route_start = route_data[route_id].get_start_time()
-            return package_data[route_id].find_time_windows(route_start, stop_ids)
-
-        def get_scoring_function_inputs(route_id):
-            """
-            Returns: stop ids and travel time dict
-            """
-            stop_ids = sequence_data[route_id].get_stop_ids()
-            travel_time_dict = travel_time_data[route_id]._data
-            return stop_ids, travel_time_dict
-
-        self.x = []
 
         if os.path.isfile(cache_file_path) and data_config.use_cache:
             with open(cache_file_path, "rb") as file:
@@ -421,7 +341,90 @@ class IRLNNDataset(Dataset):
                 + "if you have made new changes to the feature generation"
                 + ENDC
             )
+
         else:
+            route_data = RouteData.from_file(data_config.route_path)
+            sequence_data = SequenceData.from_file(data_config.sequence_path)
+            travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
+            package_data = PackageData.from_file(data_config.package_path)
+
+            route_score = RouteScoreType[data_config.route_score]
+
+            route_ids = route_data.get_routes_with_score_ids(route_score.name)
+            station_code_dict = route_data.make_station_code_indxes()
+
+            route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
+            num_routes_to_use = int(len(route_ids) * data_config.train_split)
+
+            if train_or_test == TrainTest.train:
+                route_ids = route_ids[:num_routes_to_use]
+            elif train_or_test == TrainTest.test:
+                route_ids = route_ids[num_routes_to_use:]
+
+            self.route_ids = route_ids
+
+            route_lengths = [len(sequence_data[route]) for route in route_ids]
+            self.route_lengths = route_lengths
+            self.max_route_len = max(route_lengths)
+
+            def get_route_features(route_id):
+                veh_cap = route_data[route_id]._data.executor_capacity_cm3
+                station_code = station_code_dict[
+                    route_data[route_id].get_station_code()
+                ]
+
+                return np.array([veh_cap, station_code])
+
+            def get_link_features(route_id):
+                """
+                Returns: a matrix of shape [n, route_len, route_len] where n is the number of features
+                """
+                stop_ids = sequence_data[route_id].get_stop_ids()
+
+                # add service time to travel time matrix
+                # times = extract_travel_times(travel_time_data[route_id], stop_ids)
+                # ser_times = package_data.find_service_times(stop_ids)
+                # times += ser_times
+                # times = right_pad2d(times, self.max_route_len, 0)
+
+                zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
+                # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
+                geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
+
+                # add any other functions here for more link features.
+                return np.array([zone_crossings, geo_dist_mat])
+
+            def get_travel_time(route_id):
+                """
+                Returns: a matrix of shape [route_len, route_len]
+                """
+                stop_ids = sequence_data[route_id].get_stop_ids()
+
+                # add service time to travel time matrix
+                times = extract_travel_times(travel_time_data[route_id], stop_ids)
+                ser_times = package_data[route_id].find_service_times(stop_ids)
+                times += ser_times
+
+                return times
+
+            def get_time_constraints(route_id):
+                """
+                Returns: a list of tuples [start, end]. Start and end time of the constraint. None if passed no constraints.
+                """
+                stop_ids = sequence_data[route_id].get_stop_ids()
+                route_start = route_data[route_id].get_start_time()
+                return package_data[route_id].find_time_windows(route_start, stop_ids)
+
+            def get_scoring_function_inputs(route_id):
+                """
+                Returns: stop ids and travel time dict
+                """
+                stop_ids = sequence_data[route_id].get_stop_ids()
+                travel_time_dict = travel_time_data[route_id]._data
+                return stop_ids, travel_time_dict
+
+            self.x = []
+
             for route_id in route_ids:
                 travel_times = get_travel_time(route_id)
                 link_features = get_link_features(route_id)
@@ -518,9 +521,9 @@ class IRLNNDataset(Dataset):
         #     tc_np[idx_so_far:(idx_so_far + num_stops), :] = tc_data
         #     idx_so_far += num_stops
 
-        # tt_scaler = preprocessing.StandardScaler(with_mean=False).fit(tt_np.T)
-        # tt_np = tt_scaler.transform(tt_np.T)
-        # tt_np = tt_np.T
+        tt_scaler = preprocessing.StandardScaler(with_mean=False).fit(tt_np.T)
+        tt_np = tt_scaler.transform(tt_np.T)
+        tt_np = tt_np.T
 
         # tc_np = (tc_np) / (tt_scaler.var_)
         # tc_np = tc_np.astype(np.int)

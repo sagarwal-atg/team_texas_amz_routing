@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'eval_test'
+name: 'norm_test'
 
 seed: 0
 train_on_first: false
@@ -26,12 +26,14 @@ data:
     slice_end: 10
     num_link_features: 2
     num_route_features: 2
-    route_score: 'high'
+    route_score: 'High'
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 
 batch_size: 7
 num_train_epochs: 400
 eval_iter: 10
-learning_rate: 0.001
+learning_rate: 0.1
+lr_lambda: 0.9999
 
-save_path: '/Users/Somi/amazon_challenge/trained_models/500_routes_5_features/best_score_testing_more_features.pt'
+
+save_path: '../trained_models/norm_test/best_score_norm_test.pt'

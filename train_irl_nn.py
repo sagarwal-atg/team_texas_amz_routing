@@ -17,11 +17,11 @@ from tqdm import tqdm
 from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
 from dataloaders.utils import ENDC, OKBLUE, OKGREEN, OKRED, OKYELLOW, TrainTest
 from eval_utils.score import score
-from models.irl_models import IRLModel
+from models.irl_models import IRL_Neighbor_Model, IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
 
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -138,7 +138,7 @@ def process(model, nn_data, tsp_data):
         )
 
         theta = thetas_tensor[idx].clone()
-        theta = theta.detach().numpy()
+        theta = theta.cpu().detach().numpy()
         thetas_np.append(theta)
 
         idx_so_far += route_len * route_len
@@ -164,9 +164,17 @@ def process(model, nn_data, tsp_data):
     return loss, batch_output
 
 
-def train(model, dataloader, writer, config, epoch_idx, best_loss, best_score):
-
-    optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
+def train(
+    model,
+    dataloader,
+    writer,
+    config,
+    epoch_idx,
+    optimizer,
+    scheduler,
+    best_loss,
+    best_score,
+):
 
     model.train()
 
@@ -183,6 +191,8 @@ def train(model, dataloader, writer, config, epoch_idx, best_loss, best_score):
         if epoch_idx != 0 or config.train_on_first:
             loss.backward()
             optimizer.step()
+
+        learning_rate = optimizer.param_groups[0]["lr"]
 
         res = list(zip(*batch_output))
         batch_seq_score = np.array(res[3])
@@ -201,15 +211,19 @@ def train(model, dataloader, writer, config, epoch_idx, best_loss, best_score):
         )
 
         print(
-            "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}".format(
+            "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}, LR: {}".format(
                 epoch_idx,
                 d_idx,
                 loss.item(),
                 mean_score,
                 time.time() - start_time,
                 model.get_lambda().clone().detach().numpy(),
+                learning_rate,
             )
         )
+
+    if epoch_idx != 0 or config.train_on_first:
+        scheduler.step()
 
     mean_train_loss = sum(train_loss) / len(train_loss)
     mean_train_score = sum(train_score) / len(train_score)
@@ -324,11 +338,27 @@ def main(config):
         model.load_state_dict(chkpt)
         print(OKBLUE + "Loaded Weights from :{}".format(config.save_path) + ENDC)
 
+    optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
+
+    def lr_lambda(epch):
+        return config.lr_lambda ** epch
+
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+
     best_loss = 1e10
     best_score = 1e10
+
     for epoch_idx in range(config.num_train_epochs):
         best_loss, best_score = train(
-            model, train_loader, writer, config, epoch_idx, best_loss, best_score
+            model,
+            train_loader,
+            writer,
+            config,
+            epoch_idx,
+            optimizer,
+            scheduler,
+            best_loss,
+            best_score,
         )
         if not epoch_idx % config.eval_iter:
             eval(model, test_loader, writer, config, epoch_idx)
