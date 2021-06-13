@@ -13,14 +13,8 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (
-    PackageData,
-    RouteData,
-    RouteDatum,
-    SequenceData,
-    TravelTimeData,
-    TravelTimeDatum,
-)
+from .data import (PackageData, RouteData, RouteDatum, SequenceData,
+                   TravelTimeData, TravelTimeDatum)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
@@ -39,6 +33,7 @@ IRLData = namedtuple(
         "label",
         "binary_mat",
         "closest_idxs_for_route",
+        "route_score",
     ],
 )
 
@@ -348,7 +343,14 @@ class IRLNNDataset(Dataset):
             travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
             package_data = PackageData.from_file(data_config.package_path)
 
-            route_score_list = [rs for rs in data_config.route_score]
+            if train_or_test == TrainTest.train:
+                route_score_list = [
+                    RouteScoreType[rs].name for rs in data_config.route_score
+                ]
+                print(route_score_list)
+            elif train_or_test == TrainTest.test:
+                print("Only using High Score routes in Test Set")
+                route_score_list = [RouteScoreType.High.name]
 
             route_ids = route_data.get_routes_with_score_ids(route_score_list)
             station_code_dict = route_data.make_station_code_indxes()
@@ -425,11 +427,18 @@ class IRLNNDataset(Dataset):
 
             self.x = []
 
+            route_scores_dict = {
+                RouteScoreType.High: 0,
+                RouteScoreType.Medium: 0,
+                RouteScoreType: 0,
+            }
+
             for route_id in route_ids:
                 travel_times = get_travel_time(route_id)
                 link_features = get_link_features(route_id)
                 route_features = get_route_features(route_id)
                 time_constraints = get_time_constraints(route_id)
+                route_score_ = RouteScoreType[route_data[route_id].get_score()]
                 label = sequence_data[route_id].get_sorted_route_by_index()
                 stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
                 binary_mat = seq_binary_mat(label)
@@ -449,7 +458,10 @@ class IRLNNDataset(Dataset):
                     label=label,
                     binary_mat=binary_mat,
                     closest_idxs_for_route=closest_idxs_for_route,
+                    route_score=route_score_,
                 )
+
+                route_scores_dict[route_score_] = route_scores_dict[route_score_] + 1
 
                 self.x.append(irl_data)
             with open(cache_file_path, "wb") as f:
@@ -465,7 +477,8 @@ class IRLNNDataset(Dataset):
             )
 
         print(
-            f"Using data from {len(self.x)} routes in {time.time() - start_time} secs"
+            f"Using {train_or_test.name} data from {len(self.x)} routes in {time.time() - start_time} secs"
+            + f"with {route_scores_dict}"
         )
 
     def preprocess(self, data_config):
@@ -515,18 +528,18 @@ class IRLNNDataset(Dataset):
 
         # Time Constraint Scaling
         tc_np = np.zeros((sum([a.shape[0] for a in time_constraints]), 2))
-        # idx_so_far = 0
-        # for tc_data in time_constraints:
-        #     num_stops = tc_data.shape[0]
-        #     tc_np[idx_so_far:(idx_so_far + num_stops), :] = tc_data
-        #     idx_so_far += num_stops
+        idx_so_far = 0
+        for tc_data in time_constraints:
+            num_stops = tc_data.shape[0]
+            tc_np[idx_so_far : (idx_so_far + num_stops), :] = tc_data
+            idx_so_far += num_stops
 
         tt_scaler = preprocessing.StandardScaler(with_mean=False).fit(tt_np.T)
         tt_np = tt_scaler.transform(tt_np.T)
         tt_np = tt_np.T
 
-        # tc_np = (tc_np) / (tt_scaler.var_)
-        # tc_np = tc_np.astype(np.int)
+        tc_np = (tc_np) / (tt_scaler.var_)
+        tc_np = tc_np.astype(np.int)
 
         # Time Constraint Scaling
         scaled_tc_data = []

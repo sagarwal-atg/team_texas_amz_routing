@@ -15,7 +15,15 @@ from torch import optim
 from tqdm import tqdm
 
 from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
-from dataloaders.utils import ENDC, OKBLUE, OKGREEN, OKRED, OKYELLOW, TrainTest
+from dataloaders.utils import (
+    ENDC,
+    OKBLUE,
+    OKGREEN,
+    OKRED,
+    OKYELLOW,
+    RouteScoreType,
+    TrainTest,
+)
 from eval_utils.score import score
 from models.irl_models import IRL_Neighbor_Model, IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
@@ -110,10 +118,16 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
             * (thetas_tensor[route_idx] + travel_times_tensor)
         )
 
-        route_loss = F.relu(
-            torch.log(demo_cost + model.lamb * demo_tv)
-            - torch.log(pred_cost + model.lamb * pred_tv)
-        )
+        if tsp_data[route_idx].route_score == RouteScoreType.High:
+            route_loss = F.relu(
+                torch.log(demo_cost + model.lamb * demo_tv)
+                - torch.log(pred_cost + model.lamb * pred_tv)
+            )
+        elif tsp_data[route_idx].route_score == RouteScoreType.Low:
+            route_loss = F.relu(
+                torch.log(pred_cost + model.lamb * pred_tv)
+                - torch.log(demo_cost + model.lamb * demo_tv)
+            )
 
         loss += route_loss
 
