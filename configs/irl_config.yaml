@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'norm_test'
+name: 'norm_test_fixed_tv'
 
 seed: 0
 train_on_first: false
@@ -26,7 +26,7 @@ data:
     slice_end: 10
     num_link_features: 2
     num_route_features: 2
-    route_score: 'High'
+    route_score: ['High']
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 
 batch_size: 7
@@ -36,4 +36,4 @@ learning_rate: 0.1
 lr_lambda: 0.9999
 
 
-save_path: '../trained_models/norm_test/best_score_norm_test.pt'
+# save_path: '../trained_models/norm_test/best_score_norm_test.pt'

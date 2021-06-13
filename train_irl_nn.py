@@ -21,7 +21,7 @@ from models.irl_models import IRL_Neighbor_Model, IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -40,8 +40,8 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     violation_down, violation_up = 0, 0
     for idx in range(1, len(seq)):
         time += time_matrix[seq[idx - 1], seq[idx]]
-        violation_up += max(0, time - time_constraints[idx][1])
-        violation_down += max(0, time_constraints[idx][0] - time)
+        violation_up += max(0, time - time_constraints[seq[idx]][1])
+        violation_down += max(0, time_constraints[seq[idx]][0] - time)
     return violation_up + violation_down
 
 
@@ -109,10 +109,6 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
             torch.from_numpy(tsp_data[route_idx].binary_mat).type(torch.FloatTensor)
             * (thetas_tensor[route_idx] + travel_times_tensor)
         )
-
-        # route_loss = F.relu(
-        #     (demo_cost + model.get_lambda() * demo_tv) - (pred_cost + model.get_lambda() * pred_tv)
-        # )
 
         route_loss = F.relu(
             torch.log(demo_cost + model.lamb * demo_tv)

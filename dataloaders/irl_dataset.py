@@ -348,9 +348,9 @@ class IRLNNDataset(Dataset):
             travel_time_data = TravelTimeData.from_file(data_config.travel_time_path)
             package_data = PackageData.from_file(data_config.package_path)
 
-            route_score = RouteScoreType[data_config.route_score]
+            route_score_list = [rs for rs in data_config.route_score]
 
-            route_ids = route_data.get_routes_with_score_ids(route_score.name)
+            route_ids = route_data.get_routes_with_score_ids(route_score_list)
             station_code_dict = route_data.make_station_code_indxes()
 
             route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]

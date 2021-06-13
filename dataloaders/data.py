@@ -211,9 +211,11 @@ class RouteData(AmazonData):
     def __init__(self, data):
         super().__init__(data, RouteDatum)
 
-    def get_routes_with_score_ids(self, score):
+    def get_routes_with_score_ids(self, scores_list):
         res = [
-            route_id for route_id, route in self._data.items() if route.is_score(score)
+            route_id
+            for route_id, route in self._data.items()
+            if route.get_score() in scores_list
         ]
         return res
 
