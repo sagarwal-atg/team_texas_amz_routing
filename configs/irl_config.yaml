@@ -26,7 +26,7 @@ data:
     slice_end: 10
     num_link_features: 2
     num_route_features: 2
-    route_score: ['High']
+    route_score: ['High', 'Low']
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 
 batch_size: 7

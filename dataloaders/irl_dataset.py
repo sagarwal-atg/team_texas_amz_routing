@@ -428,9 +428,9 @@ class IRLNNDataset(Dataset):
             self.x = []
 
             route_scores_dict = {
-                RouteScoreType.High: 0,
-                RouteScoreType.Medium: 0,
-                RouteScoreType: 0,
+                RouteScoreType.High.name: 0,
+                RouteScoreType.Medium.name: 0,
+                RouteScoreType.Low.name: 0,
             }
 
             for route_id in route_ids:
@@ -461,7 +461,9 @@ class IRLNNDataset(Dataset):
                     route_score=route_score_,
                 )
 
-                route_scores_dict[route_score_] = route_scores_dict[route_score_] + 1
+                route_scores_dict[route_score_.name] = (
+                    route_scores_dict[route_score_.name] + 1
+                )
 
                 self.x.append(irl_data)
             with open(cache_file_path, "wb") as f:
@@ -478,7 +480,7 @@ class IRLNNDataset(Dataset):
 
         print(
             f"Using {train_or_test.name} data from {len(self.x)} routes in {time.time() - start_time} secs"
-            + f"with {route_scores_dict}"
+            + f" with {route_scores_dict}"
         )
 
     def preprocess(self, data_config):
