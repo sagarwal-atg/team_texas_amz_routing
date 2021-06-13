@@ -7,8 +7,6 @@ import numpy as np
 from haversine import Unit, haversine
 from munch import Munch  # used to give dot accessing to dict
 
-SCORE = SimpleNamespace(LOW="Low", MEDIUM="Medium", HIGH="High")
-
 
 class RouteDatum:
     def __init__(self, data):
@@ -77,6 +75,7 @@ class SequenceDatum:
             ex: {'actual': {'A': 0, 'B': 2, 'C': 1}}
         """
         # self.tt_dicts = data['actual']
+        self._data = data
         self._stops = data["actual"]
         # sorted_data = dict(sorted(self.tt_dicts.items(), key=lambda item: item[1]))
         # self._stops = sorted_data
@@ -212,9 +211,11 @@ class RouteData(AmazonData):
     def __init__(self, data):
         super().__init__(data, RouteDatum)
 
-    def get_routes_with_score_ids(self, score):
+    def get_routes_with_score_ids(self, scores_list):
         res = [
-            route_id for route_id, route in self._data.items() if route.is_score(score)
+            route_id
+            for route_id, route in self._data.items()
+            if route.get_score() in scores_list
         ]
         return res
 

@@ -9,7 +9,7 @@ def constrained_tsp(
     time_window_list,
     depot,
     lamb,
-    time_limit=2,
+    time_limit=15,
     solution_limit=1,
 ):
     """Solve the VRP with time windows."""
@@ -106,7 +106,7 @@ def constrained_tsp(
     search_parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     )
-    # search_parameters.time_limit.seconds = time_limit
+    search_parameters.time_limit.seconds = time_limit
     # search_parameters.solution_limit = solution_limit
 
     # Solve the problem.

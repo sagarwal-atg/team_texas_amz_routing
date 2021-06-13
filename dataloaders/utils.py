@@ -10,3 +10,9 @@ OKYELLOW = "\033[93m"
 class TrainTest(Enum):
     train = auto()
     test = auto()
+
+
+class RouteScoreType(Enum):
+    Low = auto()
+    Medium = auto()
+    High = auto()
