@@ -13,8 +13,14 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (PackageData, RouteData, RouteDatum, SequenceData,
-                   TravelTimeData, TravelTimeDatum)
+from .data import (
+    PackageData,
+    RouteData,
+    RouteDatum,
+    SequenceData,
+    TravelTimeData,
+    TravelTimeDatum,
+)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
@@ -347,7 +353,6 @@ class IRLNNDataset(Dataset):
                 route_score_list = [
                     RouteScoreType[rs].name for rs in data_config.route_score
                 ]
-                print(route_score_list)
             elif train_or_test == TrainTest.test:
                 print("Only using High Score routes in Test Set")
                 route_score_list = [RouteScoreType.High.name]
