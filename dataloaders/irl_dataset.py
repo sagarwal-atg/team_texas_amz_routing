@@ -13,8 +13,14 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (PackageData, RouteData, RouteDatum, SequenceData,
-                   TravelTimeData, TravelTimeDatum)
+from .data import (
+    PackageData,
+    RouteData,
+    RouteDatum,
+    SequenceData,
+    TravelTimeData,
+    TravelTimeDatum,
+)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
@@ -327,6 +333,8 @@ class IRLNNDataset(Dataset):
                 cache_path, "{}_cache_path.pickle".format(TrainTest.test.name)
             )
 
+        route_scores_dict = None
+
         if os.path.isfile(cache_file_path) and data_config.use_cache:
             with open(cache_file_path, "rb") as file:
                 self.x = pickle.load(file)
@@ -347,7 +355,6 @@ class IRLNNDataset(Dataset):
                 route_score_list = [
                     RouteScoreType[rs].name for rs in data_config.route_score
                 ]
-                print(route_score_list)
             elif train_or_test == TrainTest.test:
                 print("Only using High Score routes in Test Set")
                 route_score_list = [RouteScoreType.High.name]
@@ -432,7 +439,6 @@ class IRLNNDataset(Dataset):
                 RouteScoreType.Medium.name: 0,
                 RouteScoreType.Low.name: 0,
             }
-
             for route_id in route_ids:
                 travel_times = get_travel_time(route_id)
                 link_features = get_link_features(route_id)
@@ -477,6 +483,17 @@ class IRLNNDataset(Dataset):
                 data_config.num_neighbors,
                 [d.closest_idxs_for_route for d in self.x],
             )
+
+        if not route_scores_dict:
+            route_scores_dict = {
+                RouteScoreType.High.name: 0,
+                RouteScoreType.Medium.name: 0,
+                RouteScoreType.Low.name: 0,
+            }
+            for route in self.x:
+                route_scores_dict[route.route_score.name] = (
+                    route_scores_dict[route.route_score.name] + 1
+                )
 
         print(
             f"Using {train_or_test.name} data from {len(self.x)} routes in {time.time() - start_time} secs"
@@ -541,7 +558,7 @@ class IRLNNDataset(Dataset):
         tt_np = tt_np.T
 
         tc_np = (tc_np) / (tt_scaler.var_)
-        tc_np = tc_np.astype(np.int)
+        tc_np = np.round(tc_np).astype(np.int)
 
         # Time Constraint Scaling
         scaled_tc_data = []

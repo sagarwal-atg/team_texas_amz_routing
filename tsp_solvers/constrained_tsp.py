@@ -1,5 +1,6 @@
 """Vehicles Routing Problem (VRP) with Time Windows."""
 
+from IPython import embed
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 
@@ -11,6 +12,7 @@ def constrained_tsp(
     lamb,
     time_limit=15,
     solution_limit=1,
+    prev_solution=None,
 ):
     """Solve the VRP with time windows."""
     lamda_1 = lamb
@@ -70,7 +72,7 @@ def constrained_tsp(
     time = "Time"
     routing.AddDimension(
         transit_callback_index,
-        50000,  # allow waiting time
+        0,  # allow waiting time
         50000,  # maximum time per vehicle
         False,  # Don't force start cumul to zero.
         time,
@@ -110,9 +112,13 @@ def constrained_tsp(
     # search_parameters.solution_limit = solution_limit
 
     # Solve the problem.
-    solution = routing.SolveWithParameters(search_parameters)
+    # if prev_solution:
+    #     solution = routing.SolveWithParameters(
+    #         search_parameters=search_parameters, solutions=prev_solution
+    #     )
+    # else:
+    solution = routing.SolveWithParameters(search_parameters=search_parameters)
 
-    # Print solution on console.
     assert solution is not None
 
     return get_tsp_solution(manager, routing, solution)
