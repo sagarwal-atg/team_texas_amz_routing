@@ -182,7 +182,9 @@ def process(model, nn_data, tsp_data, train_pred_paths):
     )
 
     loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
-    return loss, batch_output
+    thetas_norm = torch.sum([torch.norm(tht) for tht in thetas_tensor])
+    thetas_norm = thetas_norm / len(thetas_tensor)
+    return (loss, batch_output, thetas_norm)
 
 
 def train(
@@ -209,7 +211,7 @@ def train(
         nn_data, tsp_data, scaled_tc_data = data
         optimizer.zero_grad()
 
-        loss, batch_output = process(
+        loss, batch_output, thetas_norm = process(
             model,
             nn_data,
             tsp_data,
@@ -244,7 +246,7 @@ def train(
         )
 
         print(
-            "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}, LR: {}".format(
+            "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}, LR: {:01f}, Theta Norm: {:01f}".format(
                 epoch_idx,
                 d_idx,
                 loss.item(),
@@ -252,6 +254,7 @@ def train(
                 time.time() - start_time,
                 model.get_lambda().clone().detach().numpy(),
                 learning_rate,
+                thetas_norm,
             )
         )
 
@@ -308,7 +311,7 @@ def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
     for d_idx, data in enumerate(dataloader):
         nn_data, tsp_data, scaled_tc_data = data
 
-        loss, batch_output = process(
+        loss, batch_output, thetas_norm = process(
             model,
             nn_data,
             tsp_data,
