@@ -18,7 +18,7 @@ Add "virtualenv" instructions (TODO).
 
 ## Training the model
 
-`python3 model_training/train_classifier.py --config model_training/configs/small_test_config.yaml`
+`python3 train_irl_nn.py --config_path configs/irl_config.yaml`
 
 
 ## Eval the model
