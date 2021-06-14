@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'norm_test_fixed_tv'
+name: 'norm_test_fixed_tv'  # name of directory where the model weights and cache data will be stored.
 
 seed: 0
 train_on_first: false

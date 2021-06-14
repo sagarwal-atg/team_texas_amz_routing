@@ -182,8 +182,12 @@ def process(model, nn_data, tsp_data, train_pred_paths):
     )
 
     loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
-    thetas_norm = torch.sum([torch.norm(tht) for tht in thetas_tensor])
-    thetas_norm = thetas_norm / len(thetas_tensor)
+
+    thetas_norm_sum = 0
+    for tht in thetas_tensor:
+        thetas_norm_sum += torch.norm(tht)
+    thetas_norm = thetas_norm_sum / len(thetas_tensor)
+
     return (loss, batch_output, thetas_norm)
 
 
@@ -349,6 +353,7 @@ def main(config):
     train_data = IRLNNDataset(
         config.data, train_or_test=TrainTest.train, cache_path=config.training_dir
     )
+
     train_loader = torch.utils.data.DataLoader(
         train_data,
         batch_size=config.batch_size,
@@ -415,7 +420,12 @@ def main(config):
         )
         if not epoch_idx % config.eval_iter:
             test_pred_paths = eval(
-                model, test_loader, writer, config, epoch_idx, test_pred_paths
+                model,
+                test_loader,
+                writer,
+                config,
+                epoch_idx,
+                test_pred_paths,
             )
     print("Finished Training")
 
