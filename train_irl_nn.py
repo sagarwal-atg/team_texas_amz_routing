@@ -74,7 +74,7 @@ def compute_tsp_seq_for_route(data, lamb):
     ###########
     try:
         pred_seq = constrained_tsp.constrained_tsp(
-            np.round(objective_matrix + travel_times),
+            objective_matrix + travel_times,
             travel_times,
             time_constraints,
             depot=label[0],
@@ -85,12 +85,8 @@ def compute_tsp_seq_for_route(data, lamb):
         pred_seq = prev_pred_path
         print("TSP Solution None, Using Prev Path")
 
-    pred_tv = compute_time_violation_seq(
-        np.round(travel_times), time_constraints, pred_seq
-    )
-    demo_tv = compute_time_violation_seq(
-        np.round(travel_times), time_constraints, label
-    )
+    pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
+    demo_tv = compute_time_violation_seq(travel_times, time_constraints, label)
 
     pred_stop_ids = [stop_ids[j] for j in pred_seq]
     pred_stop_ids.append(pred_stop_ids[0])
@@ -120,11 +116,11 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
 
         pred_cost = torch.sum(
             torch.from_numpy(seq_binary_mat(pred_seq)).type(torch.FloatTensor)
-            * torch.round(thetas_tensor[route_idx] + travel_times_tensor)
+            * (thetas_tensor[route_idx] + travel_times_tensor)
         )
         demo_cost = torch.sum(
             torch.from_numpy(tsp_data[route_idx].binary_mat).type(torch.FloatTensor)
-            * torch.round(thetas_tensor[route_idx] + travel_times_tensor)
+            * (thetas_tensor[route_idx] + travel_times_tensor)
         )
 
         if tsp_data[route_idx].route_score == RouteScoreType.High:
