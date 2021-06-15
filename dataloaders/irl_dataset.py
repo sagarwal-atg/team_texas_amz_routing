@@ -400,8 +400,21 @@ class IRLNNDataset(Dataset):
                 # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
                 geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
 
+                my_dict = package_data[route_id].get_package_info()
+
+
+
                 # add any other functions here for more link features.
-                return np.array([zone_crossings, geo_dist_mat])
+                return np.array([zone_crossings, 
+                                    geo_dist_mat, 
+                                    my_dict["num_package_dest"],
+                                    my_dict["num_package_source"],
+                                    my_dict["total_service_time_dest"],
+                                    my_dict["total_service_time_source"],
+                                    my_dict["largest_package_volume_dest"],
+                                    my_dict["largest_package_volume_source"],
+                                    my_dict["avg_volume_of_package_dest"],
+                                    my_dict["avg_volume_of_package_source"]])
 
             def get_travel_time(route_id):
                 """

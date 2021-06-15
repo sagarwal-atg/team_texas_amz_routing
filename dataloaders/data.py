@@ -180,6 +180,61 @@ class PackageDatum:
         else:
             return (0, 57600)
 
+    def get_package_info(self):
+        
+        """route_id example: RouteID_00143bdd-0a6b-49ec-bb35-36593d303e77 
+           data_package: the dictionary retrieved from package_data.json"""
+        
+        num_package_list = []
+        total_service_time_list = []
+        largest_package_volume_list = []
+        avg_volume_of_package_list = []
+        
+        for stop in self._data:
+            temp_dict = self._data[stop]
+
+            if len(temp_dict) == 0:
+                num_package_list.append(0)
+                total_service_time_list.append(0)
+                largest_package_volume_list.append(0)
+                avg_volume_of_package_list.append(0)
+
+            else:
+                num_package = len(temp_dict)
+
+                service_time_total = 0
+                max_package_volume = 0
+                total_package_volume = 0
+
+                for package in temp_dict:
+
+                    service_time_total = service_time_total + temp_dict[package]['planned_service_time_seconds']
+                    current_volume = temp_dict[package]['dimensions']['depth_cm']*temp_dict[package]['dimensions']['height_cm']*temp_dict[package]['dimensions']['width_cm']
+                    if current_volume > max_package_volume:
+                        max_package_volume = current_volume
+                    total_package_volume = total_package_volume + current_volume
+
+                num_package_list.append(num_package)
+                total_service_time_list.append(service_time_total)
+                largest_package_volume_list.append(max_package_volume)
+                avg_volume_of_package_list.append(total_package_volume/num_package)
+        
+        my_dict = {}
+        
+        my_dict["num_package_dest"] = np.repeat([num_package_list],len(num_package_list), axis = 0)
+        my_dict["num_package_source"] = np.repeat([num_package_list],len(num_package_list), axis = 0).T
+        
+        my_dict["total_service_time_dest"] = np.repeat([total_service_time_list],len(num_package_list), axis = 0)
+        my_dict["total_service_time_source"] = np.repeat([total_service_time_list],len(num_package_list), axis = 0).T
+        
+        my_dict["largest_package_volume_dest"] = np.repeat([largest_package_volume_list],len(num_package_list), axis = 0)
+        my_dict["largest_package_volume_source"] = np.repeat([largest_package_volume_list],len(num_package_list), axis = 0).T
+        
+        my_dict["avg_volume_of_package_dest"] = np.repeat([avg_volume_of_package_list],len(num_package_list), axis = 0)
+        my_dict["avg_volume_of_package_source"] = np.repeat([avg_volume_of_package_list],len(num_package_list), axis = 0).T
+            
+        return my_dict
+
 
 class AmazonData:
     def __init__(self, data, constructor: Union[RouteDatum, SequenceDatum]):
