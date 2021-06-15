@@ -27,6 +27,7 @@ from dataloaders.utils import (
 from eval_utils.score import score
 from models.irl_models import IRL_Neighbor_Model, IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
+from training_utils.replay_buffer import ReplayMemory
 from tsp_solvers import constrained_tsp
 
 device = torch.device("cpu")
@@ -134,14 +135,14 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
                 - torch.log(demo_cost + model.lamb * demo_tv)
             )
 
-        loss += route_loss
+        loss += 1000.0 * route_loss + 1e-4 * torch.norm(thetas_tensor[route_idx])
 
     loss = loss / len(batch_output)
 
     return loss
 
 
-def process(model, nn_data, tsp_data, train_pred_paths):
+def process(model, nn_data, tsp_data, train_pred_paths, replay_buffer):
     stack_nn_data = torch.cat(nn_data, 0)
     stack_nn_data = stack_nn_data.to(device)
     obj_matrix = model(stack_nn_data)
@@ -177,6 +178,9 @@ def process(model, nn_data, tsp_data, train_pred_paths):
             )
         )
 
+    for idx, data in enumerate(tsp_data):
+        replay_buffer.push()
+
     batch_output = compute_tsp_seq_for_a_batch(
         batch_data, model.get_lambda().clone().detach().numpy()
     )
@@ -202,6 +206,7 @@ def train(
     best_loss,
     best_score,
     train_pred_paths,
+    replay_buffer,
 ):
 
     model.train()
@@ -215,11 +220,12 @@ def train(
         nn_data, tsp_data, scaled_tc_data = data
         optimizer.zero_grad()
 
-        loss, batch_output, thetas_norm = process(
+        loss, batch_output, thetas_norm, replay_buffer = process(
             model,
             nn_data,
             tsp_data,
             train_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
+            replay_buffer,
         )
 
         for kdx in range(len(batch_output)):
@@ -250,7 +256,7 @@ def train(
         )
 
         print(
-            "Epoch: {}, Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}, LR: {:01f}, Theta Norm: {:01f}".format(
+            "Epoch: {}, Step: {}, Loss: {:0.2f}, Score: {:0.3f}, Time: {:0.2f} sec, Lambda: {}, LR: {:0.2f}, Theta Norm: {:0.2f}".format(
                 epoch_idx,
                 d_idx,
                 loss.item(),
@@ -302,7 +308,7 @@ def train(
     writer.add_scalar("Train/loss", mean_train_loss, epoch_idx)
     writer.add_scalar("Train/score", mean_train_score, epoch_idx)
 
-    return best_loss, best_score, train_pred_paths
+    return best_loss, best_score, train_pred_paths, replay_buffer
 
 
 def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
@@ -405,8 +411,10 @@ def main(config):
         (1 - config.data.train_split) * config.data.slice_end
     )
 
+    replay_buffer = ReplayMemory(capacity=config.batch_size * 10)
+
     for epoch_idx in range(config.num_train_epochs):
-        best_loss, best_score, train_pred_paths = train(
+        best_loss, best_score, train_pred_paths, replay_buffer = train(
             model,
             train_loader,
             writer,
@@ -417,6 +425,7 @@ def main(config):
             best_loss,
             best_score,
             train_pred_paths,
+            replay_buffer,
         )
         if not epoch_idx % config.eval_iter:
             test_pred_paths = eval(
