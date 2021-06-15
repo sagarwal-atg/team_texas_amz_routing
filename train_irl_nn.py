@@ -402,7 +402,7 @@ def main(config):
 
     train_pred_paths = [None] * int(config.data.train_split * config.data.slice_end)
     test_pred_paths = [None] * int(
-        (1 - config.data.train_split) * config.data.slice_end
+        (1 - config.data.train_split) * config.data.slice_end + 1
     )
 
     for epoch_idx in range(config.num_train_epochs):
