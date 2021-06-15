@@ -18,7 +18,7 @@ class IRLModel(nn.Module):
         self.fc3 = nn.Linear(num_features, 1)
         nn.init.normal_(self.fc3.weight, mean=1, std=0.1)
 
-        param = torch.FloatTensor([1.24744]).type(torch.FloatTensor)
+        param = torch.FloatTensor([20.00]).type(torch.FloatTensor)
         self.lamb = torch.nn.Parameter(param, requires_grad=True)
 
     def forward(self, x):
@@ -28,10 +28,10 @@ class IRLModel(nn.Module):
         return x
 
     def get_lambda(self):
-        return torch.clamp(self.lamb, min=0.2)
+        return torch.clamp(self.lamb, min=1.0)
 
 
-class IRL_Neighbor_Model(nn.Module):
+class IRL_Neighbor_Model(IRLModel):
     def __init__(self, num_features, num_base_features):
         super().__init__()
         self.fc1 = nn.Linear(num_features, num_features - (1 * num_base_features))
@@ -46,14 +46,8 @@ class IRL_Neighbor_Model(nn.Module):
         self.fc3 = nn.Linear(num_features - (2 * num_base_features), 1)
         nn.init.normal_(self.fc3.weight, mean=1, std=0.1)
 
-        param = torch.FloatTensor([1.24744]).type(torch.FloatTensor)
-        self.lamb = torch.nn.Parameter(param, requires_grad=True)
-
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         return x
-
-    def get_lambda(self):
-        return torch.clamp(self.lamb, min=0.2)

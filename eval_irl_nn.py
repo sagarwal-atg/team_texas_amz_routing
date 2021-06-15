@@ -16,7 +16,7 @@ from torch import optim
 from tqdm import tqdm
 
 from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate
-from dataloaders.utils import ENDC, OKBLUE
+from dataloaders.utils import ENDC, OKBLUE, OKGREEN, TrainTest
 from models.irl_models import IRLModel
 from train_irl_nn import process
 from training_utils.arg_utils import get_args, setup_training_output
@@ -24,52 +24,52 @@ from training_utils.arg_utils import get_args, setup_training_output
 device = torch.device("cpu")
 
 
-def eval(model, dataloader, config):
-
+def eval(model, dataloader, config, epoch_idx, test_pred_paths):
     model.eval()
 
-    # loop over the dataset multiple times
-    epoch_score = 0
-    epoch_loss = 0
+    eval_loss = []
+    eval_score = []
 
+    paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
-        start_time = time.time()
         nn_data, tsp_data, scaled_tc_data = data
 
-        loss, batch_output = process(model, nn_data, tsp_data)
+        loss, batch_output, thetas_norm = process(
+            model,
+            nn_data,
+            tsp_data,
+            test_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
+        )
+
+        for kdx in range(len(batch_output)):
+            test_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
 
         res = list(zip(*batch_output))
         batch_seq_score = np.array(res[3])
 
         mean_score = np.mean(batch_seq_score)
-        epoch_loss += loss.item()
-        epoch_score += mean_score
+        eval_loss.append(loss.item())
+        eval_score.append(mean_score)
 
-        print(
-            "Step: {}, Loss: {:01f}, Score: {:01f}, Time: {} sec, Lambda: {}".format(
-                d_idx,
-                loss.item(),
-                mean_score,
-                time.time() - start_time,
-                model.get_lambda().clone().detach().numpy(),
-            )
-        )
-
-    mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader.dataset))
-    mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader.dataset))
+    mean_eval_loss = sum(eval_loss) / len(eval_loss)
+    mean_eval_score = sum(eval_score) / len(eval_score)
 
     print(
-        OKBLUE
-        + "Mean Loss: {}, Mean Score: {}".format(mean_epoch_loss, mean_epoch_score)
+        OKGREEN
+        + "Eval Loss: {}, Eval Score: {}".format(mean_eval_loss, mean_eval_score)
         + ENDC
     )
+
+    return test_pred_paths
 
 
 def main(config):
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
 
-    test_data = IRLNNDataset(config.data, cache_path=config.training_dir)
+    test_data = IRLNNDataset(
+        config.data, train_or_test=TrainTest.test, cache_path=config.training_dir
+    )
     test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=config.batch_size,
@@ -88,8 +88,19 @@ def main(config):
     if hasattr(config, "save_path"):
         chkpt = torch.load(config.save_path, map_location=torch.device(device))
         model.load_state_dict(chkpt)
+        print(OKBLUE + "Loaded Weights from :{}".format(config.save_path) + ENDC)
 
-    eval(model, test_loader, config)
+    test_pred_paths = [None] * int(
+        (1 - config.data.train_split) * config.data.slice_end
+    )
+
+    test_pred_paths = eval(
+        model,
+        test_loader,
+        config,
+        0,
+        test_pred_paths,
+    )
     print("Finished Training")
 
 

@@ -1,5 +1,5 @@
 # Change experiment name
-name: 'norm_test_fixed_tv'
+name: 'norm_gain_test'  # name of directory where the model weights and cache data will be stored.
 
 seed: 0
 train_on_first: false
@@ -11,26 +11,26 @@ training_dir: 'trained_models'  # base_path + training_dir
 tensorboard_dir: 'runs' # base_path + tensorboard_dir
 
 data:
-    # base_path: 'data/model_build_inputs'   # base_path + data.base_path (this path) is where all data is saved
+    base_path: 'data/model_build_inputs'   # base_path + data.base_path (this path) is where all data is saved
     # base_path + data.base_path + data_type_filename
-    base_path: 'data/small_data'
+    # base_path: 'data/small_data'
     route_filename: 'route_data.json'
     sequence_filename: 'actual_sequences.json'
     travel_times_filename: 'travel_times.json'
     package_data_filename: 'package_data.json'
 
-    train_split: 0.7  # Training data is 70% and test data is 30%
-    use_cache: false # Cache data as pickle file.
+    train_split: 0.8  # Training data is 70% and test data is 30%
+    use_cache: true # Cache data as pickle file.
 
     slice_begin: 0
-    slice_end: 10
+    slice_end: 400
     num_link_features: 2
     num_route_features: 2
     route_score: ['High', 'Low']
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 
-batch_size: 7
-num_train_epochs: 400
+batch_size: 32
+num_train_epochs: 20
 eval_iter: 10
 learning_rate: 0.1
 lr_lambda: 0.9999

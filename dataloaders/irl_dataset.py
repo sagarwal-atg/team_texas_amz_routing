@@ -560,6 +560,8 @@ class IRLNNDataset(Dataset):
         tc_np = (tc_np) / (tt_scaler.var_)
         tc_np = np.round(tc_np).astype(np.int)
 
+        self.set_scaler_variance(tt_scaler.var_)
+
         # Time Constraint Scaling
         scaled_tc_data = []
         idx_so_far = 0
@@ -634,6 +636,9 @@ class IRLNNDataset(Dataset):
             new_nn_data.append(new_nn_data_idx)
 
         return new_nn_data
+
+    def set_scaler_variance(self, var):
+        self.scale_var = var
 
     def __len__(self):
         return len(self.x)
