@@ -400,8 +400,23 @@ class IRLNNDataset(Dataset):
                 # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
                 geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
 
+                my_dict = package_data[route_id].get_package_info()
+
                 # add any other functions here for more link features.
-                return np.array([zone_crossings, geo_dist_mat])
+                return np.array(
+                    [
+                        zone_crossings,
+                        geo_dist_mat,
+                        my_dict["num_package_dest"],
+                        my_dict["num_package_source"],
+                        my_dict["total_service_time_dest"],
+                        my_dict["total_service_time_source"],
+                        my_dict["largest_package_volume_dest"],
+                        my_dict["largest_package_volume_source"],
+                        my_dict["avg_volume_of_package_dest"],
+                        my_dict["avg_volume_of_package_source"],
+                    ]
+                )
 
             def get_travel_time(route_id):
                 """
@@ -506,37 +521,44 @@ class IRLNNDataset(Dataset):
         num_route_features = data_config.num_route_features
 
         travel_times = [None] * num_routes
-        link_features = [None] * num_routes
         route_features = np.zeros((num_routes, num_route_features))
         time_constraints = [None] * num_routes
 
         transformed_data = [None] * num_routes
 
         self.total_num_links = 0
-        for idx, data in enumerate(self.x):
-            tt = data.travel_times
+        for idx, rdata in enumerate(self.x):
+            tt = rdata.travel_times
             assert len(tt.shape) == 2
             route_len = tt.shape[0]
 
             travel_times[idx] = tt
             self.total_num_links += tt.shape[0] * tt.shape[0]
 
-            lf = data.link_features
-
-            assert (
-                lf.shape[0] == num_link_features
-            ), "Fix the size of link features array function if this is changed."
-
-            link_features[idx] = lf
-
-            rf = data.route_features
+            rf = rdata.route_features
             assert (
                 rf.shape[0] == num_route_features
             ), "Fix the size of route features array function if this is changed."
 
             route_features[idx] = rf
 
-            time_constraints[idx] = np.array(data.time_constraints)
+            time_constraints[idx] = np.array(rdata.time_constraints)
+
+        link_features = np.zeros((self.total_num_links, num_link_features))
+        idx_so_far = 0
+        for idx, rdata in enumerate(self.x):
+            lf = rdata.link_features
+
+            assert (
+                lf.shape[0] == num_link_features
+            ), "Fix the size of link features array function if this is changed."
+
+            route_len = lf.shape[1]
+
+            lf = lf.T.reshape(route_len * route_len, num_link_features)
+
+            link_features[idx_so_far : (idx_so_far + lf.shape[0])] = lf
+            idx_so_far += lf.shape[0]
 
         tt_np = np.zeros((1, self.total_num_links))
         idx_so_far = 0
@@ -571,6 +593,9 @@ class IRLNNDataset(Dataset):
         rf_scaler = preprocessing.StandardScaler().fit(route_features)
         route_features = rf_scaler.transform(route_features)
 
+        lf_scaler = preprocessing.StandardScaler().fit(link_features[:, 2:])
+        link_features[:, 2:] = lf_scaler.transform(link_features[:, 2:])
+
         idx_so_far = 0
         for idx, data in enumerate(self.x):
             route_len = data.travel_times.shape[0]
@@ -581,17 +606,20 @@ class IRLNNDataset(Dataset):
             nn_data_np[:, 0] = tt_np[
                 0, idx_so_far : (idx_so_far + (route_len * route_len))
             ]
-            idx_so_far += route_len * route_len
-
-            nn_data_np[:, 1:-num_route_features] = link_features[idx].T.reshape(
-                (route_len * route_len, num_link_features)
-            )
+            # nn_data_np[:, 1:-num_route_features] = link_features[idx].T.reshape(
+            #     (route_len * route_len, num_link_features)
+            # )
+            nn_data_np[:, 1:-num_route_features] = link_features[
+                idx_so_far : (idx_so_far + (route_len * route_len)), :
+            ]
 
             nn_data_np[:, -num_route_features:] = (
                 np.ones((route_len * route_len, num_route_features))
                 * route_features[idx]
             )
+
             transformed_data[idx] = nn_data_np
+            idx_so_far += route_len * route_len
 
         return transformed_data, scaled_tc_data
 
