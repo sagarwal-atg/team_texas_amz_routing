@@ -360,7 +360,6 @@ class IRLNNDataset(Dataset):
                 route_score_list = [RouteScoreType.High.name]
 
             route_ids = route_data.get_routes_with_score_ids(route_score_list)
-            station_code_dict = route_data.make_station_code_indxes()
 
             route_ids = route_ids[slice(data_config.slice_begin, data_config.slice_end)]
             num_routes_to_use = int(len(route_ids) * data_config.train_split)
@@ -371,6 +370,7 @@ class IRLNNDataset(Dataset):
                 route_ids = route_ids[num_routes_to_use:]
 
             self.route_ids = route_ids
+            station_code_enc = route_data.make_station_code_encoder()
 
             route_lengths = [len(sequence_data[route]) for route in route_ids]
             self.route_lengths = route_lengths
@@ -378,11 +378,13 @@ class IRLNNDataset(Dataset):
 
             def get_route_features(route_id):
                 veh_cap = route_data[route_id]._data.executor_capacity_cm3
-                station_code = station_code_dict[
-                    route_data[route_id].get_station_code()
-                ]
+                station_code = station_code_enc.transform(
+                    np.array(route_data[route_id].get_station_code()).reshape(1, 1)
+                )
 
-                return np.array([veh_cap, station_code])
+                return np.concatenate(
+                    [np.array([veh_cap]).reshape(-1, 1), station_code.T]
+                ).reshape((-1,))
 
             def get_link_features(route_id):
                 """
@@ -399,6 +401,7 @@ class IRLNNDataset(Dataset):
                 zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
                 # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
                 geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
+                depot_dist_mat = route_data[route_id].get_depot_distance_mat(stop_ids)
 
                 my_dict = package_data[route_id].get_package_info()
 
@@ -407,6 +410,7 @@ class IRLNNDataset(Dataset):
                     [
                         zone_crossings,
                         geo_dist_mat,
+                        depot_dist_mat,
                         my_dict["num_package_dest"],
                         my_dict["num_package_source"],
                         my_dict["total_service_time_dest"],
@@ -517,8 +521,10 @@ class IRLNNDataset(Dataset):
 
     def preprocess(self, data_config):
         num_routes = len(self.x)
-        num_link_features = data_config.num_link_features
-        num_route_features = data_config.num_route_features
+        num_link_features = self.x[0].link_features.shape[0]
+        num_route_features = self.x[0].route_features.shape[0]
+
+        self.num_features = num_link_features + num_route_features + 1
 
         travel_times = [None] * num_routes
         route_features = np.zeros((num_routes, num_route_features))
@@ -590,11 +596,11 @@ class IRLNNDataset(Dataset):
             scaled_tc_data.append(tc_np[idx_so_far : (idx_so_far + num_stops)].tolist())
             idx_so_far += num_stops
 
-        rf_scaler = preprocessing.StandardScaler().fit(route_features)
-        route_features = rf_scaler.transform(route_features)
+        rf_scaler = preprocessing.StandardScaler().fit(route_features[:, :1])
+        route_features[:, :1] = rf_scaler.transform(route_features[:, :1])
 
-        lf_scaler = preprocessing.StandardScaler().fit(link_features[:, 2:])
-        link_features[:, 2:] = lf_scaler.transform(link_features[:, 2:])
+        lf_scaler = preprocessing.StandardScaler().fit(link_features[:, 3:])
+        link_features[:, 3:] = lf_scaler.transform(link_features[:, 3:])
 
         idx_so_far = 0
         for idx, data in enumerate(self.x):

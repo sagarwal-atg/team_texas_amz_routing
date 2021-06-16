@@ -377,10 +377,7 @@ def main(config):
             datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), config.name
         )
     )
-    num_features = (
-        1 + config.data.num_link_features + config.data.num_route_features
-    ) * (config.data.num_neighbors + 1)
-
+    num_features = (train_data.num_features) * (config.data.num_neighbors + 1)
     model = IRLModel(num_features=num_features)
     model = model.to(device)
     print(model)

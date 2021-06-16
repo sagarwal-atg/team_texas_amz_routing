@@ -23,9 +23,7 @@ data:
     use_cache: false # Cache data as pickle file.
 
     slice_begin: 0
-    slice_end: 10
-    num_link_features: 10
-    num_route_features: 2
+    slice_end: 20
     route_score: ['High', 'Low']
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 

@@ -4,13 +4,19 @@ from types import SimpleNamespace
 from typing import Dict, List, Union
 
 import numpy as np
-from haversine import Unit, haversine
+from haversine import haversine
 from munch import Munch  # used to give dot accessing to dict
+from sklearn.preprocessing import OneHotEncoder
 
 
 class RouteDatum:
     def __init__(self, data):
         self._data = Munch(data)
+
+    def get_depot(self) -> str:
+        for key, stop in self.get_stops(self._data.stops).items():
+            if stop["type"] != "Dropoff":
+                return key
 
     def get_stops(self, stop_ids: List[str] = None):
         stops = self._data.stops
@@ -62,6 +68,13 @@ class RouteDatum:
                 geo_dist_mat[adx, bdx] = self.get_geo_dist(stop_id_a, stop_id_b)
 
         return geo_dist_mat
+
+    def get_depot_distance_mat(self, stop_ids):
+        depot_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))
+        depot = self.get_depot()
+        for adx, stop_id_a in enumerate(stop_ids):
+            depot_dist_mat[adx, :] = self.get_geo_dist(depot, stop_id_a)
+        return depot_dist_mat
 
 
 class SequenceDatum:
@@ -297,15 +310,15 @@ class RouteData(AmazonData):
         ]
         return res
 
-    def make_station_code_indxes(self):
-        station_codes_dict = dict()
-        station_index = 0
+    def make_station_code_encoder(self):
+        station_codes = []
         for route_id, _ in self._data.items():
             station_code = self._data[route_id]._data["station_code"]
-            if station_code not in station_codes_dict:
-                station_codes_dict[station_code] = station_index
-                station_index += 1
-        return station_codes_dict
+            if station_code not in station_codes:
+                station_codes.append(station_code)
+        enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
+        enc.fit(np.array(station_codes).reshape(len(station_codes), 1))
+        return enc
 
 
 class TravelTimeData(AmazonData):
