@@ -264,6 +264,7 @@ def train(
         )
 
     if epoch_idx != 0 or config.train_on_first:
+        print("Scheduler Step")
         scheduler.step()
 
     mean_train_loss = sum(train_loss) / len(train_loss)
