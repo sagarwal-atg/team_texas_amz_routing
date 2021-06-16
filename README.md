@@ -23,7 +23,7 @@ Add "virtualenv" instructions (TODO).
 
 ## Eval the model
 
-`python3 team_texas_amz_routing/eval.py linear_irl/model_900.pt`
+`python3 eval_irl_nn.py --config_path configs/eval_irl_nn_config.yaml`
 
 ## Notes
 - small_data folder is a subset of the first 20 routes from the data/model_build_inputs
