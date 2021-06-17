@@ -21,6 +21,7 @@ from dataloaders.utils import (
     OKGREEN,
     OKRED,
     OKYELLOW,
+    ReplayBuffer,
     RouteScoreType,
     TrainTest,
 )
@@ -34,6 +35,8 @@ device = torch.device("cpu")
 HIGH_SCORE_GAIN = 1.0
 MEDIUM_SCORE_GAIN = 1.0
 LOW_SCORE_GAIN = 1.0
+
+replay = ReplayBuffer(max_size=10, sample_size=32)
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -145,7 +148,8 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
     return loss
 
 
-def process(model, nn_data, tsp_data):
+def process(model, nn_data, tsp_data, use_replay):
+    print(('Not' if not use_replay else '') +  ' using replay')
     stack_nn_data = torch.cat(nn_data, 0)
     stack_nn_data = stack_nn_data.to(device)
     obj_matrix = model(stack_nn_data)
@@ -183,7 +187,12 @@ def process(model, nn_data, tsp_data):
     batch_output = compute_tsp_seq_for_a_batch(
         batch_data, model.get_lambda().clone().detach().numpy()
     )
-
+    if use_replay: # true for training
+        replay.store_batch(batch_output, thetas_tensor, tsp_data)
+        batch_output_old, thetas_tensor_old, tsp_data_old = replay.sample()
+        batch_output = batch_output + list(batch_output_old)
+        thetas_tensor = thetas_tensor + list(thetas_tensor_old)
+        tsp_data = tsp_data + list(tsp_data_old)
     loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
     thetas_norm_sum = 0
@@ -221,12 +230,13 @@ def train(
             model,
             nn_data,
             tsp_data,
+            use_replay=True,
         )
 
         paths_so_far += len(batch_output)
 
         if epoch_idx != 0 or config.train_on_first:
-            loss.backward()
+            loss.backward(retain_graph=True)
             optimizer.step()
 
         learning_rate = optimizer.param_groups[0]["lr"]
@@ -318,6 +328,7 @@ def eval(model, dataloader, writer, config, epoch_idx):
             model,
             nn_data,
             tsp_data,
+            use_replay=False,
         )
 
         res = list(zip(*batch_output))
@@ -350,11 +361,11 @@ def main(config):
         train_data,
         batch_size=config.batch_size,
         collate_fn=irl_nn_collate,
-        num_workers=2,
+        num_workers=2, # should change to 4 or 8?
     )
 
     test_data = IRLNNDataset(
-        config.data, train_or_test=TrainTest.test, cache_path=config.training_dir
+        config.data, train_or_test=TrainTest.test, cache_path=config.training_dir # should change to testing_dir?
     )
     test_loader = torch.utils.data.DataLoader(
         test_data,
