@@ -20,7 +20,7 @@ data:
     package_data_filename: 'package_data.json'
 
     train_split: 0.7  # Training data is 70% and test data is 30%
-    use_cache: true # Cache data as pickle file.
+    use_cache: false # Cache data as pickle file.
 
     slice_begin: 0
     slice_end: 10

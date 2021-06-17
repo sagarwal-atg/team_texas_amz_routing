@@ -71,6 +71,7 @@ def compute_tsp_seq_for_route(data, lamb):
         travel_time_dict,
         label,
         seq_obj_mat,
+        depot,
     ) = data
 
     demo_stop_ids = [stop_ids[j] for j in label]
@@ -83,7 +84,7 @@ def compute_tsp_seq_for_route(data, lamb):
             # seq_obj_mat * travel_times,
             travel_times,
             time_constraints,
-            depot=label[0],
+            depot=depot,
             lamb=int(lamb),
         )
     except AssertionError:
@@ -92,7 +93,7 @@ def compute_tsp_seq_for_route(data, lamb):
             travel_times,
             travel_times,
             time_constraints,
-            depot=label[0],
+            depot=depot,
             lamb=int(lamb),
         )
 
@@ -212,6 +213,7 @@ def process(models, nn_datas, tsp_data):
                 data.travel_time_dict,
                 data.label,
                 seq_np[idx],
+                data.depot,
             )
         )
 

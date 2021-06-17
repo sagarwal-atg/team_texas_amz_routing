@@ -42,6 +42,7 @@ IRLData = namedtuple(
         "binary_mat",
         "closest_idxs_for_route",
         "route_score",
+        "depot",
     ],
 )
 
@@ -375,9 +376,7 @@ class IRLNNDataset(Dataset):
 
             self.route_ids = route_ids
 
-            route_lengths = [len(sequence_data[route]) for route in route_ids]
-            self.route_lengths = route_lengths
-            self.max_route_len = max(route_lengths)
+            max_num_zones = route_data.get_max_num_zones()
 
             def get_route_features(route_id):
                 veh_cap = route_data[route_id]._data.executor_capacity_cm3
@@ -391,7 +390,7 @@ class IRLNNDataset(Dataset):
                 """
                 Returns: a matrix of shape [n, route_len, route_len] where n is the number of features
                 """
-                stop_ids = sequence_data[route_id].get_stop_ids()
+                stop_ids = route_data[route_id].get_stop_ids()
 
                 # add service time to travel time matrix
                 # times = extract_travel_times(travel_time_data[route_id], stop_ids)
@@ -405,11 +404,14 @@ class IRLNNDataset(Dataset):
 
                 my_dict = package_data[route_id].get_package_info()
 
+                zone_mat = route_data[route_id].get_zone_mat(max_num_zones)
+
                 # add any other functions here for more link features.
                 return np.array(
                     [
                         zone_crossings,
                         geo_dist_mat,
+                        zone_mat,
                         my_dict["num_package_dest"],
                         my_dict["num_package_source"],
                         my_dict["total_service_time_dest"],
@@ -425,7 +427,7 @@ class IRLNNDataset(Dataset):
                 """
                 Returns: a matrix of shape [route_len, route_len]
                 """
-                stop_ids = sequence_data[route_id].get_stop_ids()
+                stop_ids = route_data[route_id].get_stop_ids()
 
                 # add service time to travel time matrix
                 times = extract_travel_times(travel_time_data[route_id], stop_ids)
@@ -438,7 +440,7 @@ class IRLNNDataset(Dataset):
                 """
                 Returns: a list of tuples [start, end]. Start and end time of the constraint. None if passed no constraints.
                 """
-                stop_ids = sequence_data[route_id].get_stop_ids()
+                stop_ids = route_data[route_id].get_stop_ids()
                 route_start = route_data[route_id].get_start_time()
                 return package_data[route_id].find_time_windows(route_start, stop_ids)
 
@@ -446,7 +448,7 @@ class IRLNNDataset(Dataset):
                 """
                 Returns: stop ids and travel time dict
                 """
-                stop_ids = sequence_data[route_id].get_stop_ids()
+                stop_ids = route_data[route_id].get_stop_ids()
                 travel_time_dict = travel_time_data[route_id]._data
                 return stop_ids, travel_time_dict
 
@@ -466,6 +468,7 @@ class IRLNNDataset(Dataset):
                 label = sequence_data[route_id].get_sorted_route_by_index()
                 stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
                 binary_mat = seq_binary_mat(label)
+                depot = route_data[route_id].get_depot()
                 closest_idxs_for_route = None
                 if data_config.num_neighbors > 1:
                     closest_idxs_for_route = find_closest_idx(
@@ -483,6 +486,7 @@ class IRLNNDataset(Dataset):
                     binary_mat=binary_mat,
                     closest_idxs_for_route=closest_idxs_for_route,
                     route_score=route_score_,
+                    depot=depot,
                 )
 
                 route_scores_dict[route_score_.name] = (
