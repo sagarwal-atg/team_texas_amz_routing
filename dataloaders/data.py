@@ -6,17 +6,47 @@ from typing import Dict, List, Union
 import numpy as np
 from haversine import Unit, haversine
 from munch import Munch  # used to give dot accessing to dict
+from sklearn.preprocessing import OneHotEncoder
 
 
 class RouteDatum:
     def __init__(self, data):
         self._data = Munch(data)
+        self.zone_d = self.get_zones(self.get_stop_ids())
+
+    def get_stop_ids(self):
+        return list(self._data["stops"].keys())
+
+    def get_depot(self) -> str:
+        stops = self.get_stops()
+        for idx, key in enumerate(stops):
+            if stops[key]["type"] != "Dropoff":
+                return key, idx
 
     def get_stops(self, stop_ids: List[str] = None):
         stops = self._data.stops
         if stop_ids:
             stops = {key: stops[key] for key in stop_ids}
         return stops
+
+    def get_zone_mat(self, max_num_zones):
+
+        zone_d = self.zone_d
+        enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
+        zone_list = list(zone_d.values())
+        ohc_zone = enc.fit_transform(np.array(zone_list).reshape(len(zone_list), 1))
+        num_zones = enc.categories_[0].shape[0]
+
+        zone_mat = [[None] * len(zone_list)] * len(zone_list)
+        for idx, stop_a in enumerate(zone_d):
+            for jdx, stop_b in enumerate(zone_d):
+                zone_np = np.zeros((max_num_zones,))
+                # zone_np[:num_zones] = enc.transform(
+                #     np.array(zone_d[stop_a]).reshape(1, 1)
+                # ) + enc.transform(np.array(zone_d[stop_b]).reshape(1, 1))
+                zone_np[:num_zones] = ohc_zone[idx] + ohc_zone[jdx]
+                zone_mat[idx][jdx] = zone_np
+        return np.array(zone_mat)
 
     def get_zones(self, stop_ids: List[str] = None) -> Dict[str, str]:
         """
@@ -62,6 +92,13 @@ class RouteDatum:
                 geo_dist_mat[adx, bdx] = self.get_geo_dist(stop_id_a, stop_id_b)
 
         return geo_dist_mat
+
+    def get_depot_distance_mat(self, stop_ids):
+        depot_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))
+        depot, _ = self.get_depot()
+        for adx, stop_id_a in enumerate(stop_ids):
+            depot_dist_mat[adx, :] = self.get_geo_dist(depot, stop_id_a)
+        return depot_dist_mat
 
 
 class SequenceDatum:
@@ -306,6 +343,13 @@ class RouteData(AmazonData):
                 station_codes_dict[station_code] = station_index
                 station_index += 1
         return station_codes_dict
+
+    def get_max_num_zones(self):
+        max_num_zones = 0
+        for route_id, _ in self._data.items():
+            zone_len = len(set(self._data[route_id].zone_d.values()))
+            max_num_zones = max(zone_len, max_num_zones)
+        return max_num_zones
 
 
 class TravelTimeData(AmazonData):

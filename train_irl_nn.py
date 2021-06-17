@@ -69,6 +69,7 @@ def compute_tsp_seq_for_route(data, lamb):
         travel_time_dict,
         label,
         prev_pred_path,
+        depot,
     ) = data
 
     demo_stop_ids = [stop_ids[j] for j in label]
@@ -80,7 +81,7 @@ def compute_tsp_seq_for_route(data, lamb):
             objective_matrix + travel_times,
             travel_times,
             time_constraints,
-            depot=label[0],
+            depot=depot,
             lamb=int(lamb),
             prev_solution=prev_pred_path,
         )
@@ -114,6 +115,7 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
         pred_seq = batch_output[route_idx][0]
         demo_tv = batch_output[route_idx][1]
         pred_tv = batch_output[route_idx][2]
+        seq_score = batch_output[route_idx][3]
 
         travel_times_tensor = torch.from_numpy(tsp_data[route_idx].travel_times)
 
@@ -137,7 +139,7 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
                 - torch.log(demo_cost + model.lamb * demo_tv)
             )
 
-        loss += route_loss
+        loss += route_loss + seq_score
 
     loss = loss / len(batch_output)
 
@@ -178,6 +180,7 @@ def process(model, nn_data, tsp_data, train_pred_paths, use_replay):
                 data.travel_time_dict,
                 data.label,
                 train_pred_paths[idx],
+                data.depot,
             )
         )
 
@@ -221,7 +224,7 @@ def train(
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
         start_time = time.time()
-        nn_data, tsp_data, scaled_tc_data = data
+        nn_data, tsp_data, scaled_tc_data, _ = data
         optimizer.zero_grad()
 
         loss, batch_output, thetas_norm = process(
@@ -324,7 +327,7 @@ def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
 
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
-        nn_data, tsp_data, scaled_tc_data = data
+        nn_data, tsp_data, scaled_tc_data, _ = data
 
         loss, batch_output, thetas_norm = process(
             model,
@@ -388,9 +391,7 @@ def main(config):
             datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"), config.name
         )
     )
-    num_features = (
-        1 + config.data.num_link_features + config.data.num_route_features
-    ) * (config.data.num_neighbors + 1)
+    num_features = (train_data.num_features) * (config.data.num_neighbors + 1)
 
     model = IRLModel(num_features=num_features)
     model = model.to(device)
