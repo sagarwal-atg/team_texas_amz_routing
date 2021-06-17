@@ -13,13 +13,13 @@ class IRLModel(nn.Module):
         init_mean = 1.0
         init_std = 0.1
 
-        self.fc1 = nn.Linear(num_features, num_features)
+        self.fc1 = nn.Linear(num_features, int(num_features / 2))
         nn.init.normal_(self.fc1.weight, mean=init_mean, std=init_std)
 
-        self.fc2 = nn.Linear(num_features, int(num_features / 2))
+        self.fc2 = nn.Linear(int(num_features / 2), int(num_features / 4))
         nn.init.normal_(self.fc2.weight, mean=init_mean, std=init_std)
 
-        self.fc3 = nn.Linear(int(num_features / 2), 1)
+        self.fc3 = nn.Linear(int(num_features / 4), 1)
         nn.init.normal_(self.fc3.weight, mean=init_mean, std=init_std)
 
         param = torch.FloatTensor([1.24744]).type(torch.FloatTensor)

@@ -13,8 +13,14 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (PackageData, RouteData, RouteDatum, SequenceData,
-                   TravelTimeData, TravelTimeDatum)
+from .data import (
+    PackageData,
+    RouteData,
+    RouteDatum,
+    SequenceData,
+    TravelTimeData,
+    TravelTimeDatum,
+)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
@@ -527,7 +533,7 @@ class IRLNNDataset(Dataset):
 
     def preprocess(self, data_config):
         num_routes = len(self.x)
-        num_link_features = self.x[0].link_feature.shape[0]
+        num_link_features = self.x[0].link_features.shape[0]
         num_route_features = self.x[0].route_features.shape[0]
 
         self.num_features = 1 + num_link_features + num_route_features

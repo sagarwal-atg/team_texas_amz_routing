@@ -25,13 +25,13 @@ data:
     slice_begin: 0
     slice_end: 10
     route_score: ['High', 'Low']
-    num_neighbors: 0  # Num of surrounding stops to use for same feature set.
+    num_neighbors: 4  # Num of surrounding stops to use for same feature set.
 
 batch_size: 8
 num_train_epochs: 400
 eval_iter: 10
 learning_rate: 0.1
-lr_lambda: 0.9999
+lr_lambda: 0.9
 
 
-# save_path: '../trained_models/norm_test/best_score_norm_test.pt'
+# save_path: '../trained_models/package_features/best_score_package_features.pt'
