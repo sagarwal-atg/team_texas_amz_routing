@@ -2,7 +2,7 @@
 name: 'package_features'
 
 seed: 0
-train_on_first: true
+train_on_first: false
 
 
 base_path: '..'  # base path where model weights , tensorboard will be saved
@@ -24,8 +24,6 @@ data:
 
     slice_begin: 0
     slice_end: 10
-    num_link_features: 42
-    num_route_features: 2
     route_score: ['High', 'Low']
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 
