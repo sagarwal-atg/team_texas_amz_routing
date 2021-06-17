@@ -66,6 +66,11 @@ class RouteDatum:
 
         return geo_dist_mat
 
+    def get_depot(self) -> str:
+        for key, stop in self.get_stops(self._data.stops).items():
+            if stop["type"] != "Dropoff":
+                return key
+
 
 class SequenceDatum:
     """

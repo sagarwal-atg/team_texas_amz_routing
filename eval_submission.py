@@ -14,10 +14,16 @@ from tensorboardX import SummaryWriter
 from torch import optim
 from tqdm import tqdm
 
-from dataloaders.irl_dataset import (IRL_NN_Eval_Dataset, irl_nn_collate,
-                                     seq_binary_mat)
-from dataloaders.utils import (ENDC, OKBLUE, OKGREEN, OKRED, OKYELLOW,
-                               RouteScoreType, TrainTest)
+from dataloaders.irl_dataset import IRL_NN_Eval_Dataset, irl_nn_collate, seq_binary_mat
+from dataloaders.utils import (
+    ENDC,
+    OKBLUE,
+    OKGREEN,
+    OKRED,
+    OKYELLOW,
+    RouteScoreType,
+    TrainTest,
+)
 from eval_utils.score import score
 from models.irl_models import IRL_Neighbor_Model, IRLModel
 from training_utils.arg_utils import get_args, setup_training_output
@@ -52,13 +58,7 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
 
 
 def compute_tsp_seq_for_route(data, lamb):
-    (
-        objective_matrix,
-        travel_times,
-        time_constraints,
-        stop_ids,
-        travel_time_dict,
-    ) = data
+    (objective_matrix, travel_times, time_constraints, stop_ids, depot) = data
 
     ###########
     try:
@@ -66,7 +66,7 @@ def compute_tsp_seq_for_route(data, lamb):
             objective_matrix + travel_times,
             travel_times,
             time_constraints,
-            depot=label[0],
+            depot=depot,
             lamb=int(lamb),
         )
     except AssertionError:
@@ -75,7 +75,7 @@ def compute_tsp_seq_for_route(data, lamb):
             travel_times,
             travel_times,
             time_constraints,
-            depot=label[0],
+            depot=depot,
             lamb=int(lamb),
         )
 
@@ -123,7 +123,7 @@ def process(model, nn_data, tsp_data):
                 data.travel_times,
                 data.time_constraints,
                 data.stop_ids,
-                data.travel_time_dict,
+                data.depot,
             )
         )
 
@@ -134,37 +134,20 @@ def process(model, nn_data, tsp_data):
     return batch_output
 
 
-def eval(model, dataloader, config):
+def eval(model, dataloader):
     model.eval()
 
-    eval_loss = []
-    eval_score = []
-
-    paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
         nn_data, tsp_data, _ = data
 
-        loss, batch_output, thetas_norm = process(
+        batch_output = process(
             model,
             nn_data,
             tsp_data,
         )
 
         res = list(zip(*batch_output))
-        batch_seq_score = np.array(res[3])
-
-        mean_score = np.mean(batch_seq_score)
-        eval_loss.append(loss.item())
-        eval_score.append(mean_score)
-
-    mean_eval_loss = sum(eval_loss) / len(eval_loss)
-    mean_eval_score = sum(eval_score) / len(eval_score)
-
-    print(
-        OKGREEN
-        + "Eval Loss: {}, Eval Score: {}".format(mean_eval_loss, mean_eval_score)
-        + ENDC
-    )
+        batch_pred_seq = np.array(res[0])
 
 
 def main(config):

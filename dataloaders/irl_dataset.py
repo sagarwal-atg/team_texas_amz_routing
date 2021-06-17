@@ -54,6 +54,7 @@ IRL_Eval_Data = namedtuple(
         "travel_time_dict",
         "closest_idxs_for_route",
         "route_score",
+        "depot",
     ],
 )
 
@@ -829,6 +830,7 @@ class IRL_NN_Eval_Dataset(Dataset):
                 route_score_ = RouteScoreType[route_data[route_id].get_score()]
                 stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
                 closest_idxs_for_route = None
+                depot = route_data[route_id].get_depot()
                 if data_config.num_neighbors > 1:
                     closest_idxs_for_route = find_closest_idx(
                         travel_times, data_config.num_neighbors
@@ -843,6 +845,7 @@ class IRL_NN_Eval_Dataset(Dataset):
                     travel_time_dict=travel_time_dict,
                     closest_idxs_for_route=closest_idxs_for_route,
                     route_score=route_score_,
+                    depot=depot,
                 )
 
                 route_scores_dict[route_score_.name] = (
