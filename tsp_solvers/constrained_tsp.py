@@ -12,7 +12,6 @@ def constrained_tsp(
     lamb,
     time_limit=15,
     solution_limit=1,
-    prev_solution=None,
 ):
     """Solve the VRP with time windows."""
     lamda_1 = lamb

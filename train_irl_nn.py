@@ -65,7 +65,6 @@ def compute_tsp_seq_for_route(data, lamb):
         stop_ids,
         travel_time_dict,
         label,
-        prev_pred_path,
     ) = data
 
     demo_stop_ids = [stop_ids[j] for j in label]
@@ -79,11 +78,16 @@ def compute_tsp_seq_for_route(data, lamb):
             time_constraints,
             depot=label[0],
             lamb=int(lamb),
-            prev_solution=prev_pred_path,
         )
     except AssertionError:
-        pred_seq = prev_pred_path
-        print("TSP Solution None, Using Prev Path")
+        print("TSP Solution None, Using Raw TSP")
+        pred_seq = constrained_tsp.constrained_tsp(
+            travel_times,
+            travel_times,
+            time_constraints,
+            depot=label[0],
+            lamb=int(lamb),
+        )
 
     pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
     demo_tv = compute_time_violation_seq(travel_times, time_constraints, label)
@@ -141,7 +145,7 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
     return loss
 
 
-def process(model, nn_data, tsp_data, train_pred_paths):
+def process(model, nn_data, tsp_data):
     stack_nn_data = torch.cat(nn_data, 0)
     stack_nn_data = stack_nn_data.to(device)
     obj_matrix = model(stack_nn_data)
@@ -173,7 +177,6 @@ def process(model, nn_data, tsp_data, train_pred_paths):
                 data.stop_ids,
                 data.travel_time_dict,
                 data.label,
-                train_pred_paths[idx],
             )
         )
 
@@ -201,7 +204,6 @@ def train(
     scheduler,
     best_loss,
     best_score,
-    train_pred_paths,
 ):
 
     model.train()
@@ -219,11 +221,7 @@ def train(
             model,
             nn_data,
             tsp_data,
-            train_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
         )
-
-        for kdx in range(len(batch_output)):
-            train_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
 
         paths_so_far += len(batch_output)
 
@@ -303,10 +301,10 @@ def train(
     writer.add_scalar("Train/loss", mean_train_loss, epoch_idx)
     writer.add_scalar("Train/score", mean_train_score, epoch_idx)
 
-    return best_loss, best_score, train_pred_paths
+    return best_loss, best_score
 
 
-def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
+def eval(model, dataloader, writer, config, epoch_idx):
     model.eval()
 
     eval_loss = []
@@ -320,11 +318,7 @@ def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
             model,
             nn_data,
             tsp_data,
-            test_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
         )
-
-        for kdx in range(len(batch_output)):
-            test_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
 
         res = list(zip(*batch_output))
         batch_seq_score = np.array(res[3])
@@ -343,8 +337,6 @@ def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
     )
     writer.add_scalar("Eval/loss", mean_eval_loss, epoch_idx)
     writer.add_scalar("Eval/score", mean_eval_score, epoch_idx)
-
-    return test_pred_paths
 
 
 def main(config):
@@ -400,13 +392,8 @@ def main(config):
     best_loss = 1e10
     best_score = 1e10
 
-    train_pred_paths = [None] * int(config.data.train_split * config.data.slice_end)
-    test_pred_paths = [None] * int(
-        (1 - config.data.train_split) * config.data.slice_end + 1
-    )
-
     for epoch_idx in range(config.num_train_epochs):
-        best_loss, best_score, train_pred_paths = train(
+        best_loss, best_score = train(
             model,
             train_loader,
             writer,
@@ -416,12 +403,9 @@ def main(config):
             scheduler,
             best_loss,
             best_score,
-            train_pred_paths,
         )
         if not epoch_idx % config.eval_iter:
-            test_pred_paths = eval(
-                model, test_loader, writer, config, epoch_idx, test_pred_paths
-            )
+            eval(model, test_loader, writer, config, epoch_idx)
     print("Finished Training")
 
 
