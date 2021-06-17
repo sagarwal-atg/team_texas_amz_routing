@@ -19,17 +19,17 @@ data:
     travel_times_filename: 'travel_times.json'
     package_data_filename: 'package_data.json'
 
-    train_split: 0.7  # Training data is 70% and test data is 30%
+    train_split: 0.8  # Training data is 70% and test data is 30%
     use_cache: false # Cache data as pickle file.
 
     slice_begin: 0
     slice_end: 10
-    num_link_features: 10
+    num_link_features: 41
     num_route_features: 2
     route_score: ['High', 'Low']
     num_neighbors: 0  # Num of surrounding stops to use for same feature set.
 
-batch_size: 7
+batch_size: 8
 num_train_epochs: 400
 eval_iter: 10
 learning_rate: 0.1

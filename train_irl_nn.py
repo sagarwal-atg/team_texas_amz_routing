@@ -66,6 +66,7 @@ def compute_tsp_seq_for_route(data, lamb):
         travel_time_dict,
         label,
         prev_pred_path,
+        depot,
     ) = data
 
     demo_stop_ids = [stop_ids[j] for j in label]
@@ -77,7 +78,7 @@ def compute_tsp_seq_for_route(data, lamb):
             objective_matrix + travel_times,
             travel_times,
             time_constraints,
-            depot=label[0],
+            depot=depot,
             lamb=int(lamb),
             prev_solution=prev_pred_path,
         )
@@ -174,6 +175,7 @@ def process(model, nn_data, tsp_data, train_pred_paths):
                 data.travel_time_dict,
                 data.label,
                 train_pred_paths[idx],
+                data.depot,
             )
         )
 
@@ -212,7 +214,7 @@ def train(
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
         start_time = time.time()
-        nn_data, tsp_data, scaled_tc_data = data
+        nn_data, tsp_data, scaled_tc_data, _ = data
         optimizer.zero_grad()
 
         loss, batch_output, thetas_norm = process(
@@ -314,7 +316,7 @@ def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
 
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
-        nn_data, tsp_data, scaled_tc_data = data
+        nn_data, tsp_data, scaled_tc_data, _ = data
 
         loss, batch_output, thetas_norm = process(
             model,
