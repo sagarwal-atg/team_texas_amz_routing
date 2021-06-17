@@ -149,6 +149,7 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
 
 
 def process(model, nn_data, tsp_data, use_replay):
+    print(('Not' if not use_replay else '') +  ' using replay')
     stack_nn_data = torch.cat(nn_data, 0)
     stack_nn_data = stack_nn_data.to(device)
     obj_matrix = model(stack_nn_data)
@@ -188,7 +189,10 @@ def process(model, nn_data, tsp_data, use_replay):
     )
     if use_replay: # true for training
         replay.store_batch(batch_output, thetas_tensor, tsp_data)
-        batch_output, thetas_tensor, tsp_data = replay.sample()
+        batch_output_old, thetas_tensor_old, tsp_data_old = replay.sample()
+        batch_output = batch_output + list(batch_output_old)
+        thetas_tensor = thetas_tensor + list(thetas_tensor_old)
+        tsp_data = tsp_data + list(tsp_data_old)
     loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
     thetas_norm_sum = 0
@@ -229,6 +233,10 @@ def train(
             use_replay=True,
         )
 
+        for kdx in range(len(tsp_data)):
+            train_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
+
+>>>>>>> replay buffer first try
         paths_so_far += len(batch_output)
 
         if epoch_idx != 0 or config.train_on_first:
