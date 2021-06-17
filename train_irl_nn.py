@@ -229,7 +229,7 @@ def train(
             nn_data,
             tsp_data,
             train_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
-            use_replay=False,
+            use_replay=True,
         )
 
         for kdx in range(len(tsp_data)):
