@@ -36,7 +36,7 @@ HIGH_SCORE_GAIN = 1.0
 MEDIUM_SCORE_GAIN = 1.0
 LOW_SCORE_GAIN = 1.0
 
-replay = ReplayBuffer(max_size=10, sample_size=3)
+replay = ReplayBuffer(max_size=10, sample_size=32)
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
