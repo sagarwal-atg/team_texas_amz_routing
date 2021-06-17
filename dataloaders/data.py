@@ -12,7 +12,7 @@ class RouteDatum:
     def __init__(self, data):
         self._data = Munch(data)
 
-    def get_stops_ids(self):
+    def get_stop_ids(self):
         return list(self._data["stops"].keys())
 
     def get_stops(self, stop_ids: List[str] = None):
