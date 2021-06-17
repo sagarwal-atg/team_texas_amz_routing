@@ -27,6 +27,8 @@ IntMatrix = NDArray[(Any, Any), np.int32]
 FloatMatrix = NDArray[(Any, Any), np.float]
 BoolMatrix = NDArray[(Any, Any), np.bool]
 
+MAX_ROUTE_LEN = 210
+
 IRLData = namedtuple(
     "IRLData",
     [
@@ -302,7 +304,8 @@ def irl_nn_collate(batch):
     nn_data = [item[0] for item in batch]
     other_data = [item[1] for item in batch]
     scaled_tc_data = [item[2] for item in batch]
-    return [nn_data, other_data, scaled_tc_data]
+    seq_data = [item[3] for item in batch]
+    return [nn_data, other_data, scaled_tc_data, seq_data]
 
 
 def find_closest_idx(travel_times, num_closest):
@@ -491,7 +494,7 @@ class IRLNNDataset(Dataset):
                 pickle.dump(self.x, f, protocol=pickle.HIGHEST_PROTOCOL)
             print(OKGREEN + "Cached Data: {}".format(cache_file_path) + ENDC)
 
-        self.nn_data, self.scaled_tc_data = self.preprocess(data_config)
+        self.nn_data, self.scaled_tc_data, self.seq_data = self.preprocess(data_config)
         if data_config.num_neighbors > 1:
             self.nn_data = self.add_neighbors(
                 self.nn_data,
@@ -520,11 +523,14 @@ class IRLNNDataset(Dataset):
         num_link_features = data_config.num_link_features
         num_route_features = data_config.num_route_features
 
+        self.num_features = 1 + num_link_features + num_route_features
+
         travel_times = [None] * num_routes
         route_features = np.zeros((num_routes, num_route_features))
         time_constraints = [None] * num_routes
 
         transformed_data = [None] * num_routes
+        seq_data = [None] * num_routes
 
         self.total_num_links = 0
         for idx, rdata in enumerate(self.x):
@@ -600,28 +606,31 @@ class IRLNNDataset(Dataset):
         for idx, data in enumerate(self.x):
             route_len = data.travel_times.shape[0]
 
-            nn_data_np = np.zeros(
-                (route_len * route_len, num_link_features + num_route_features + 1)
-            )
+            # Links Data
+            nn_data_np = np.zeros((route_len * route_len, self.num_features))
             nn_data_np[:, 0] = tt_np[
                 0, idx_so_far : (idx_so_far + (route_len * route_len))
             ]
-            # nn_data_np[:, 1:-num_route_features] = link_features[idx].T.reshape(
-            #     (route_len * route_len, num_link_features)
-            # )
             nn_data_np[:, 1:-num_route_features] = link_features[
                 idx_so_far : (idx_so_far + (route_len * route_len)), :
             ]
-
             nn_data_np[:, -num_route_features:] = (
                 np.ones((route_len * route_len, num_route_features))
                 * route_features[idx]
             )
 
+            # Seq Data
+            seq_data_np = np.zeros((route_len, MAX_ROUTE_LEN * self.num_features))
+            for rdx in range(route_len):
+                seq_data_np[rdx, : (route_len * self.num_features)] = nn_data_np[
+                    rdx * (route_len) : (rdx + 1) * route_len
+                ].flatten()
+
             transformed_data[idx] = nn_data_np
+            seq_data[idx] = seq_data_np
             idx_so_far += route_len * route_len
 
-        return transformed_data, scaled_tc_data
+        return transformed_data, scaled_tc_data, seq_data
 
     def add_neighbors(self, nn_data, num_neighbors, closest_idxs_for_route):
         new_nn_data = []
@@ -670,4 +679,5 @@ class IRLNNDataset(Dataset):
         nn_data = torch.from_numpy(self.nn_data[idx]).type(torch.FloatTensor)
         other_data = self.x[idx]
         scaled_tc_data = self.scaled_tc_data[idx]
-        return [nn_data, other_data, scaled_tc_data]
+        seq_data = torch.from_numpy(self.seq_data[idx]).type(torch.FloatTensor)
+        return [nn_data, other_data, scaled_tc_data, seq_data]
