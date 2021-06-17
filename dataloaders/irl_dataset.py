@@ -13,14 +13,8 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (
-    PackageData,
-    RouteData,
-    RouteDatum,
-    SequenceData,
-    TravelTimeData,
-    TravelTimeDatum,
-)
+from .data import (PackageData, RouteData, RouteDatum, SequenceData,
+                   TravelTimeData, TravelTimeDatum)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
@@ -407,6 +401,8 @@ class IRLNNDataset(Dataset):
 
                 zone_mat = route_data[route_id].get_zone_mat(max_num_zones)
 
+                depot_dist_mat = route_data[route_id].get_depot_distance_mat(stop_ids)
+
                 # add any other functions here for more link features.
                 return np.concatenate(
                     [
@@ -414,6 +410,7 @@ class IRLNNDataset(Dataset):
                             [
                                 zone_crossings,
                                 geo_dist_mat,
+                                depot_dist_mat,
                                 my_dict["num_package_dest"],
                                 my_dict["num_package_source"],
                                 my_dict["total_service_time_dest"],

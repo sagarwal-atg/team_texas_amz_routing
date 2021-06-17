@@ -112,6 +112,7 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
         pred_seq = batch_output[route_idx][0]
         demo_tv = batch_output[route_idx][1]
         pred_tv = batch_output[route_idx][2]
+        seq_score = batch_output[route_idx][3]
 
         travel_times_tensor = torch.from_numpy(tsp_data[route_idx].travel_times)
 
@@ -135,7 +136,7 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
                 - torch.log(demo_cost + model.lamb * demo_tv)
             )
 
-        loss += route_loss
+        loss += route_loss + seq_score
 
     loss = loss / len(batch_output)
 

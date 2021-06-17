@@ -95,7 +95,7 @@ class RouteDatum:
 
     def get_depot_distance_mat(self, stop_ids):
         depot_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))
-        depot = self.get_depot()
+        depot, _ = self.get_depot()
         for adx, stop_id_a in enumerate(stop_ids):
             depot_dist_mat[adx, :] = self.get_geo_dist(depot, stop_id_a)
         return depot_dist_mat
