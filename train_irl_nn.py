@@ -14,7 +14,12 @@ from tensorboardX import SummaryWriter
 from torch import optim
 from tqdm import tqdm
 
-from dataloaders.irl_dataset import IRLNNDataset, irl_nn_collate, seq_binary_mat
+from dataloaders.irl_dataset import (
+    MAX_ROUTE_LEN,
+    IRLNNDataset,
+    irl_nn_collate,
+    seq_binary_mat,
+)
 from dataloaders.utils import (
     ENDC,
     OKBLUE,
@@ -66,6 +71,7 @@ def compute_tsp_seq_for_route(data, lamb):
         travel_time_dict,
         label,
         prev_pred_path,
+        seq_obj_mat,
     ) = data
 
     demo_stop_ids = [stop_ids[j] for j in label]
@@ -74,7 +80,8 @@ def compute_tsp_seq_for_route(data, lamb):
     ###########
     try:
         pred_seq = constrained_tsp.constrained_tsp(
-            objective_matrix + travel_times,
+            objective_matrix * seq_obj_mat * travel_times,
+            # seq_obj_mat * travel_times,
             travel_times,
             time_constraints,
             depot=label[0],
@@ -104,7 +111,7 @@ def compute_tsp_seq_for_a_batch(batch_data, lamb):
     return batch_output
 
 
-def irl_loss(batch_output, thetas_tensor, tsp_data, model):
+def irl_loss(batch_output, thetas_tensor, seq_tensor, tsp_data, model):
 
     loss = 0.0
     for route_idx in range(len(batch_output)):
@@ -114,19 +121,26 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
 
         travel_times_tensor = torch.from_numpy(tsp_data[route_idx].travel_times)
 
+        obj_data_tensor = (
+            # seq_tensor[route_idx]
+            # * travel_times_tensor
+            thetas_tensor[route_idx]
+            * seq_tensor[route_idx]
+            * travel_times_tensor
+        )
+
         pred_cost = torch.sum(
             torch.from_numpy(seq_binary_mat(pred_seq)).type(torch.FloatTensor)
-            * (thetas_tensor[route_idx] + travel_times_tensor)
+            * obj_data_tensor
         )
         demo_cost = torch.sum(
             torch.from_numpy(tsp_data[route_idx].binary_mat).type(torch.FloatTensor)
-            * (thetas_tensor[route_idx] + travel_times_tensor)
+            * obj_data_tensor
         )
 
         if tsp_data[route_idx].route_score == RouteScoreType.High:
             route_loss = HIGH_SCORE_GAIN * F.relu(
-                torch.log(demo_cost + model.lamb * demo_tv)
-                - torch.log(pred_cost + model.lamb * pred_tv)
+                (demo_cost + model.lamb * demo_tv) - (pred_cost + model.lamb * pred_tv)
             )
         elif tsp_data[route_idx].route_score == RouteScoreType.Low:
             route_loss = LOW_SCORE_GAIN * F.relu(
@@ -141,14 +155,25 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
     return loss
 
 
-def process(model, nn_data, tsp_data, train_pred_paths):
+def process(models, nn_datas, tsp_data, train_pred_paths):
+
+    model, seq_model = models
+    nn_data, seq_nn_data = nn_datas
+
     stack_nn_data = torch.cat(nn_data, 0)
     stack_nn_data = stack_nn_data.to(device)
     obj_matrix = model(stack_nn_data)
 
+    stack_seq_data = torch.cat(seq_nn_data, 0)
+    stack_seq_data = stack_seq_data.to(device)
+    seq_obj_matrix = seq_model(stack_seq_data)
+
     idx_so_far = 0
+    seq_idx_so_far = 0
     thetas_np = []
     thetas_tensor = []
+    seq_tensor = []
+    seq_np = []
     for idx, data in enumerate(tsp_data):
         route_len = data.travel_times.shape[0]
         thetas_tensor.append(
@@ -157,11 +182,20 @@ def process(model, nn_data, tsp_data, train_pred_paths):
             )
         )
 
+        seq_tensor.append(
+            seq_obj_matrix[seq_idx_so_far : (seq_idx_so_far + route_len), :route_len]
+        )
+
         theta = thetas_tensor[idx].clone()
         theta = theta.cpu().detach().numpy()
         thetas_np.append(theta)
 
+        theta_seq = seq_tensor[idx].clone()
+        theta_seq = theta_seq.cpu().detach().numpy()
+        seq_np.append(theta_seq)
+
         idx_so_far += route_len * route_len
+        seq_idx_so_far += route_len
 
     batch_data = []
     for idx, data in enumerate(tsp_data):
@@ -174,6 +208,7 @@ def process(model, nn_data, tsp_data, train_pred_paths):
                 data.travel_time_dict,
                 data.label,
                 train_pred_paths[idx],
+                seq_np[idx],
             )
         )
 
@@ -181,18 +216,23 @@ def process(model, nn_data, tsp_data, train_pred_paths):
         batch_data, model.get_lambda().clone().detach().numpy()
     )
 
-    loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
+    loss = irl_loss(batch_output, thetas_tensor, seq_tensor, tsp_data, model)
 
     thetas_norm_sum = 0
     for tht in thetas_tensor:
         thetas_norm_sum += torch.norm(tht)
     thetas_norm = thetas_norm_sum / len(thetas_tensor)
 
-    return (loss, batch_output, thetas_norm)
+    seq_thetas_norm_sum = 0
+    for stht in seq_tensor:
+        seq_thetas_norm_sum += torch.norm(stht)
+    seq_thetas_norm = seq_thetas_norm_sum / len(seq_tensor)
+
+    return (loss, batch_output, thetas_norm, seq_thetas_norm)
 
 
 def train(
-    model,
+    models,
     dataloader,
     writer,
     config,
@@ -203,8 +243,9 @@ def train(
     best_score,
     train_pred_paths,
 ):
-
+    model, seq_model = models
     model.train()
+    seq_model.train()
 
     train_score = []
     train_loss = []
@@ -212,12 +253,12 @@ def train(
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
         start_time = time.time()
-        nn_data, tsp_data, scaled_tc_data = data
+        nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
         optimizer.zero_grad()
 
-        loss, batch_output, thetas_norm = process(
-            model,
-            nn_data,
+        loss, batch_output, thetas_norm, seq_thetas_norm = process(
+            (model, seq_model),
+            (nn_data, seq_nn_data),
             tsp_data,
             train_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
         )
@@ -251,7 +292,7 @@ def train(
 
         print(
             "Epoch: {}, Step: {}, Loss: {:0.2f}, Score: {:0.3f}, Time: {:0.2f} sec,"
-            " Lambda: {:0.2f}, LR: {:0.2f}, Theta Norm: {:0.2f}".format(
+            " Lambda: {:0.2f}, LR: {:0.2f}, Theta Norm: {:0.2f}, Seq Thetas Norm: {:0.2f}".format(
                 epoch_idx,
                 d_idx,
                 loss.item(),
@@ -260,6 +301,7 @@ def train(
                 model.get_lambda().clone().detach().numpy()[0],
                 learning_rate,
                 thetas_norm,
+                seq_thetas_norm,
             )
         )
 
@@ -306,19 +348,22 @@ def train(
     return best_loss, best_score, train_pred_paths
 
 
-def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
+def eval(models, dataloader, writer, config, epoch_idx, test_pred_paths):
+
+    model, seq_model = models
     model.eval()
+    seq_model.eval()
 
     eval_loss = []
     eval_score = []
 
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
-        nn_data, tsp_data, scaled_tc_data = data
+        nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
 
-        loss, batch_output, thetas_norm = process(
-            model,
-            nn_data,
+        loss, batch_output, thetas_norm, seq_thetas_norm = process(
+            (model, seq_model),
+            (nn_data, seq_nn_data),
             tsp_data,
             test_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
         )
@@ -385,12 +430,25 @@ def main(config):
     model = model.to(device)
     print(model)
 
-    if hasattr(config, "save_path"):
-        chkpt = torch.load(config.save_path, map_location=torch.device(device))
-        model.load_state_dict(chkpt)
-        print(OKBLUE + "Loaded Weights from :{}".format(config.save_path) + ENDC)
+    seq_model = IRLModel(
+        num_features=(MAX_ROUTE_LEN * num_features), out_features=MAX_ROUTE_LEN
+    )
+    seq_model = seq_model.to(device)
+    print(seq_model)
 
-    optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
+    if hasattr(config, "model_save_path"):
+        chkpt = torch.load(config.model_save_path, map_location=torch.device(device))
+        model.load_state_dict(chkpt)
+        print(OKBLUE + "Loaded Weights from :{}".format(config.model_save_path) + ENDC)
+
+    if hasattr(config, "seq_save_path"):
+        chkpt = torch.load(config.seq_save_path, map_location=torch.device(device))
+        seq_model.load_state_dict(chkpt)
+        print(OKBLUE + "Loaded Weights from :{}".format(config.seq_save_path) + ENDC)
+
+    params = list(model.parameters()) + list(seq_model.parameters())
+    # params = seq_model.parameters()
+    optimizer = optim.Adam(params, lr=config.learning_rate)
 
     def lr_lambda(epch):
         return config.lr_lambda ** epch
@@ -407,7 +465,7 @@ def main(config):
 
     for epoch_idx in range(config.num_train_epochs):
         best_loss, best_score, train_pred_paths = train(
-            model,
+            (model, seq_model),
             train_loader,
             writer,
             config,
@@ -420,7 +478,12 @@ def main(config):
         )
         if not epoch_idx % config.eval_iter:
             test_pred_paths = eval(
-                model, test_loader, writer, config, epoch_idx, test_pred_paths
+                (model, seq_model),
+                test_loader,
+                writer,
+                config,
+                epoch_idx,
+                test_pred_paths,
             )
     print("Finished Training")
 
