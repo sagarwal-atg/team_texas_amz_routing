@@ -21,6 +21,7 @@ from dataloaders.utils import (
     OKGREEN,
     OKRED,
     OKYELLOW,
+    ReplayBuffer,
     RouteScoreType,
     TrainTest,
 )
@@ -34,6 +35,8 @@ device = torch.device("cpu")
 HIGH_SCORE_GAIN = 1.0
 MEDIUM_SCORE_GAIN = 1.0
 LOW_SCORE_GAIN = 1.0
+
+replay = ReplayBuffer(max_size=10, sample_size=1)
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -141,7 +144,8 @@ def irl_loss(batch_output, thetas_tensor, tsp_data, model):
     return loss
 
 
-def process(model, nn_data, tsp_data, train_pred_paths):
+def process(model, nn_data, tsp_data, train_pred_paths, use_replay):
+    print(('Not' if not use_replay else '') +  ' using replay')
     stack_nn_data = torch.cat(nn_data, 0)
     stack_nn_data = stack_nn_data.to(device)
     obj_matrix = model(stack_nn_data)
@@ -180,7 +184,12 @@ def process(model, nn_data, tsp_data, train_pred_paths):
     batch_output = compute_tsp_seq_for_a_batch(
         batch_data, model.get_lambda().clone().detach().numpy()
     )
-
+    if use_replay: # true for training
+        replay.store_batch(batch_output, thetas_tensor, tsp_data)
+        batch_output_old, thetas_tensor_old, tsp_data_old = replay.sample()
+        batch_output = batch_output + list(batch_output_old)
+        thetas_tensor = thetas_tensor + list(thetas_tensor_old)
+        tsp_data = tsp_data + list(tsp_data_old)
     loss = irl_loss(batch_output, thetas_tensor, tsp_data, model)
 
     thetas_norm_sum = 0
@@ -220,9 +229,10 @@ def train(
             nn_data,
             tsp_data,
             train_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
+            use_replay=False,
         )
 
-        for kdx in range(len(batch_output)):
+        for kdx in range(len(tsp_data)):
             train_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
 
         paths_so_far += len(batch_output)
@@ -321,6 +331,7 @@ def eval(model, dataloader, writer, config, epoch_idx, test_pred_paths):
             nn_data,
             tsp_data,
             test_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
+            use_replay=False,
         )
 
         for kdx in range(len(batch_output)):
@@ -399,7 +410,9 @@ def main(config):
 
     best_loss = 1e10
     best_score = 1e10
-
+    # MUST ADD SLICE_END LOGIC HERE. also slice_begin
+    # could there be an off by one error here? 
+    # - consider if the slice length was 2. and train_split was 0.7. Then int(0.7*2)=1 and int(0.3*2)=0
     train_pred_paths = [None] * int(config.data.train_split * config.data.slice_end)
     test_pred_paths = [None] * int(
         (1 - config.data.train_split) * config.data.slice_end + 1
