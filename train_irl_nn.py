@@ -233,10 +233,6 @@ def train(
             use_replay=True,
         )
 
-        for kdx in range(len(tsp_data)):
-            train_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
-
->>>>>>> replay buffer first try
         paths_so_far += len(batch_output)
 
         if epoch_idx != 0 or config.train_on_first:
