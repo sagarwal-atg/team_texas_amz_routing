@@ -34,7 +34,8 @@ batch_size: 8
 num_train_epochs: 400
 eval_iter: 10
 learning_rate: 0.1
-lr_lambda: 0.9
+lr_lambda: 0.99
 
 
 # save_path: '../trained_models/norm_test/best_score_norm_test.pt'
+seq_save_path: '../trained_models/arc_classifier/model_arc_classifier.pt'

@@ -68,8 +68,8 @@ class TC_Model(nn.Module):
     def __init__(self, num_features, out_features=1):
         super().__init__()
 
-        init_mean = 1.0
-        init_std = 0.1
+        init_mean = 0.0
+        init_std = 0.2
 
         self.fc1 = nn.Linear(num_features, num_features)
         nn.init.normal_(self.fc1.weight, mean=init_mean, std=init_std)
@@ -83,12 +83,20 @@ class TC_Model(nn.Module):
         param = torch.FloatTensor([1.24744]).type(torch.FloatTensor)
         self.lamb = torch.nn.Parameter(param, requires_grad=True)
 
-    def forward(self, x, curr_len):
+        self.m = nn.Tanh()
+
+    def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        x[:, 0] = torch.sigmoid(x[:, 0]) * 8
-        x[:, 1] = torch.sigmoid(x[:, 1]) * curr_len
+        # x = F.relu(torch.min(x, torch.FloatTensor([1.00]).type(torch.FloatTensor))) * 8
+        # x[:, 1] = torch.sigmoid(x[:, 1]) * curr_len
+        x = (
+            torch.min(
+                (self.m(x) + 1.5), torch.FloatTensor([1.00]).type(torch.FloatTensor)
+            )
+            * 4.0
+        )
         return x
 
     def get_lambda(self):

@@ -13,8 +13,14 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (PackageData, RouteData, RouteDatum, SequenceData,
-                   TravelTimeData, TravelTimeDatum)
+from .data import (
+    PackageData,
+    RouteData,
+    RouteDatum,
+    SequenceData,
+    TravelTimeData,
+    TravelTimeDatum,
+)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
@@ -38,6 +44,8 @@ IRLData = namedtuple(
         "route_score",
         "depot",
         "stop_features",
+        "zone_info_dict",
+        "binary_labels",
     ],
 )
 
@@ -301,7 +309,8 @@ def irl_nn_collate(batch):
     other_data = [item[1] for item in batch]
     scaled_tc_data = [item[2] for item in batch]
     seq_data = [item[3] for item in batch]
-    return [nn_data, other_data, scaled_tc_data, seq_data]
+    bin_label_data = [item[4] for item in batch]
+    return [nn_data, other_data, scaled_tc_data, seq_data, bin_label_data]
 
 
 def find_closest_idx(travel_times, num_closest):
@@ -399,13 +408,19 @@ class IRLNNDataset(Dataset):
             def get_stop_features(route_id, time_constraints):
                 stop_ids = route_data[route_id].get_stop_ids()
 
-                # zone_ohc = route_data[route_id].get_zone_ohc()
+                zone_ohc = (
+                    route_data[route_id]
+                    .get_zone_ohc()
+                    .T.reshape(
+                        -1,
+                    )
+                )
                 depot_dist_ = (
                     route_data[route_id].get_depot_distance_(stop_ids).reshape(-1, 1).T
                 )
                 lat_long = route_data[route_id].get_lat_long(stop_ids)
 
-                # tc_data = np.array(time_constraints).T
+                tc_data = np.array(time_constraints).T
 
                 my_dict = package_data[route_id].get_package_info()
 
@@ -416,17 +431,45 @@ class IRLNNDataset(Dataset):
                 )
                 avg_vol = my_dict["avg_volume_of_package_source"][0].reshape(-1, 1).T
 
-                return np.concatenate(
-                    [
-                        depot_dist_,
-                        lat_long,
-                        # tc_data,
-                        num_packs,
-                        service_time,
-                        largest_vol,
-                        avg_vol,
-                    ],
-                    axis=0,
+                zone_info_dict = {}
+                for idx in range(len(stop_ids)):
+                    if zone_ohc[idx] in zone_info_dict.keys():
+                        curr_stop_tv = (
+                            time_constraints[idx][1] - time_constraints[idx][0]
+                        )
+                        dict_stop_tv = (
+                            time_constraints[zone_info_dict[zone_ohc[idx]]][1]
+                            - time_constraints[zone_info_dict[zone_ohc[idx]]][0]
+                        )
+
+                        if curr_stop_tv < dict_stop_tv:
+                            zone_info_dict[zone_ohc[idx]] = idx
+                    else:
+                        zone_info_dict[zone_ohc[idx]] = idx
+
+                correct_idxs = list(zone_info_dict.values())
+
+                depot_dist_ = depot_dist_[:, correct_idxs]
+                lat_long = lat_long[:, correct_idxs]
+                num_packs = num_packs[:, correct_idxs]
+                service_time = service_time[:, correct_idxs]
+                largest_vol = largest_vol[:, correct_idxs]
+                avg_vol = avg_vol[:, correct_idxs]
+
+                return (
+                    np.concatenate(
+                        [
+                            depot_dist_,
+                            lat_long,
+                            # tc_data,
+                            num_packs,
+                            service_time,
+                            largest_vol,
+                            avg_vol,
+                        ],
+                        axis=0,
+                    ),
+                    zone_info_dict,
                 )
 
             def get_travel_time(route_id):
@@ -458,6 +501,15 @@ class IRLNNDataset(Dataset):
                 travel_time_dict = travel_time_data[route_id]._data
                 return stop_ids, travel_time_dict
 
+            def get_class_label(travel_times, label, zone_dict):
+                time = np.zeros((len(label)))
+                for idx in range(1, len(label)):
+                    time[idx] = time[idx - 1] + travel_times[label[idx - 1], label[idx]]
+
+                chosen_stop_idx = np.array(list(zone_dict.values()))
+                binary_labels = time[chosen_stop_idx] < 4.0 * 3600
+                return binary_labels.astype(np.float).reshape(-1, 1)
+
             self.x = []
 
             route_scores_dict = {
@@ -476,7 +528,11 @@ class IRLNNDataset(Dataset):
                 binary_mat = seq_binary_mat(label)
                 depot, depot_idx = route_data[route_id].get_depot()
                 closest_idxs_for_route = None
-                stop_features = get_stop_features(route_id, time_constraints)
+                stop_features, zone_info_dict = get_stop_features(
+                    route_id, time_constraints
+                )
+                binary_labels = get_class_label(travel_times, label, zone_info_dict)
+
                 if data_config.num_neighbors > 1:
                     closest_idxs_for_route = find_closest_idx(
                         travel_times, data_config.num_neighbors
@@ -495,6 +551,8 @@ class IRLNNDataset(Dataset):
                     route_score=route_score_,
                     depot=depot_idx,
                     stop_features=stop_features,
+                    zone_info_dict=zone_info_dict,
+                    binary_labels=binary_labels,
                 )
 
                 route_scores_dict[route_score_.name] = (
@@ -506,7 +564,13 @@ class IRLNNDataset(Dataset):
                 pickle.dump(self.x, f, protocol=pickle.HIGHEST_PROTOCOL)
             print(OKGREEN + "Cached Data: {}".format(cache_file_path) + ENDC)
 
-        self.nn_data, self.scaled_tc_data, self.seq_data = self.preprocess(data_config)
+        (
+            self.nn_data,
+            self.scaled_tc_data,
+            self.seq_data,
+            self.stop_binary_label_data,
+        ) = self.preprocess(data_config)
+
         if data_config.num_neighbors > 1:
             self.nn_data = self.add_neighbors(
                 self.nn_data,
@@ -545,9 +609,10 @@ class IRLNNDataset(Dataset):
 
         transformed_data = [None] * num_routes
         stop_data = [None] * num_routes
+        stop_binary_label_data = [None] * num_routes
 
         self.total_num_links = 0
-        self.total_num_stops = 0
+        self.total_zone_stops = 0
         for idx, rdata in enumerate(self.x):
             tt = rdata.travel_times
             assert len(tt.shape) == 2
@@ -555,7 +620,7 @@ class IRLNNDataset(Dataset):
 
             travel_times[idx] = tt
             self.total_num_links += tt.shape[0] * tt.shape[0]
-            self.total_num_stops += tt.shape[0]
+            self.total_zone_stops += len(rdata.zone_info_dict.values())
 
             rf = rdata.route_features
             assert (
@@ -566,12 +631,13 @@ class IRLNNDataset(Dataset):
 
             time_constraints[idx] = np.array(rdata.time_constraints)
 
-        stop_features = np.zeros((self.total_num_stops, num_stop_features))
+        stop_features = np.zeros((self.total_zone_stops, num_stop_features))
         idx_so_far = 0
         for idx, rdata in enumerate(self.x):
             sf = rdata.stop_features
             num_stops = sf.shape[1]
             stop_features[idx_so_far : (idx_so_far + num_stops)] = sf.T
+
             idx_so_far += num_stops
 
         link_features = np.zeros((self.total_num_links, num_link_features))
@@ -654,22 +720,29 @@ class IRLNNDataset(Dataset):
             #         rdx * (route_len) : (rdx + 1) * route_len
             #     ].flatten()
 
-            stop_data_np = np.zeros((route_len, self.num_tc_features))
-            stop_data_np[:, :2] = tc_np[jdx_so_far : (jdx_so_far + route_len)]
+            num_z_stops = len(data.zone_info_dict.values())
+
+            stop_data_np = np.zeros((num_z_stops, self.num_tc_features))
+            stop_binary_label_np = np.zeros((num_z_stops, 1))
+
+            stop_data_np[:, :2] = tc_np[jdx_so_far : (jdx_so_far + num_z_stops)]
 
             stop_data_np[:, 2 : 2 + num_stop_features] = stop_features[
-                jdx_so_far : (jdx_so_far + route_len)
+                jdx_so_far : (jdx_so_far + num_z_stops)
             ]
             stop_data_np[:, 2 + num_stop_features :] = (
-                np.ones((route_len, num_route_features)) * route_features[idx]
+                np.ones((num_z_stops, num_route_features)) * route_features[idx]
             )
+            sf_bin = data.binary_labels
+            stop_binary_label_np[:] = sf_bin
 
             transformed_data[idx] = nn_data_np
             # seq_data[idx] = seq_data_np
             stop_data[idx] = stop_data_np
+            stop_binary_label_data[idx] = stop_binary_label_np
             idx_so_far += route_len * route_len
 
-        return transformed_data, scaled_tc_data, stop_data
+        return transformed_data, scaled_tc_data, stop_data, stop_binary_label_data
 
     def add_neighbors(self, nn_data, num_neighbors, closest_idxs_for_route):
         new_nn_data = []
@@ -719,4 +792,7 @@ class IRLNNDataset(Dataset):
         other_data = self.x[idx]
         scaled_tc_data = self.scaled_tc_data[idx]
         seq_data = torch.from_numpy(self.seq_data[idx]).type(torch.FloatTensor)
-        return [nn_data, other_data, scaled_tc_data, seq_data]
+        stop_label_data = torch.from_numpy(self.stop_binary_label_data[idx]).type(
+            torch.FloatTensor
+        )
+        return [nn_data, other_data, scaled_tc_data, seq_data, stop_label_data]

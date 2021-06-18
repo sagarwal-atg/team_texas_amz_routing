@@ -3,6 +3,7 @@ import datetime
 import multiprocessing
 import pprint
 import time
+from copy import deepcopy
 from functools import partial
 from multiprocessing import Pool
 
@@ -31,6 +32,7 @@ from dataloaders.utils import (
 )
 from eval_utils.score import score
 from models.irl_models import IRLModel, TC_Model
+from models.models import ARC_Classifier
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
 
@@ -55,7 +57,7 @@ class TC_Len_Scheduler:
         print(self.curr_len)
 
 
-tc_len_scheduler = TC_Len_Scheduler(6.0, 2.0, 20)
+tc_len_scheduler = TC_Len_Scheduler(3.0, 3.0, 20)
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -88,10 +90,18 @@ def tc_tensor_to_tuple_list(tc_tensor):
         tc_route_list = []
         tc_route_list_tensor = []
         for tc in route:
-            start = torch.max(torch.zeros(1), (tc[0] - tc[1]) * 3600)
-            end = (tc[0] + tc[1]) * 3600
+            # tc_len = tc_len_scheduler.curr_len
+            # start = torch.max(torch.zeros(1), (tc - tc_len) * 3600)
+            # end = (tc + tc_len) * 3600
+            if tc == 1.0:
+                start = 0.0
+                end = 4.0 * 3600
+            else:
+                start = 4.0 * 3600
+                end = 8.0 * 3600
+
             tc_route_list_tensor.append([start, end])
-            tc_route_list.append((start.clone().detach(), end.clone().detach()))
+            tc_route_list.append((start, end))
         tc_list.append(tc_route_list)
         tc_list_tensor.append(tc_route_list_tensor)
 
@@ -108,7 +118,13 @@ def compute_tsp_seq_for_route(data, lamb):
         label,
         tc_list,
         depot,
+        zone_info_dict,
     ) = data
+
+    time_constraints_orig = deepcopy(time_constraints)
+
+    for tdx, idx in enumerate(zone_info_dict.values()):
+        time_constraints[idx] = (tc_list[tdx][0], tc_list[tdx][1])
 
     ###########
     try:
@@ -116,7 +132,7 @@ def compute_tsp_seq_for_route(data, lamb):
             # objective_matrix * seq_obj_mat * travel_times,
             objective_matrix + travel_times,
             travel_times,
-            tc_list,
+            time_constraints,
             depot=depot,
             lamb=int(lamb),
         )
@@ -125,7 +141,7 @@ def compute_tsp_seq_for_route(data, lamb):
         pred_seq = constrained_tsp.constrained_tsp(
             travel_times,
             travel_times,
-            time_constraints,
+            time_constraints_orig,
             depot=depot,
             lamb=int(lamb),
         )
@@ -167,12 +183,23 @@ def irl_loss(batch_output, thetas_tensor, tc_tensor, tsp_data, model):
             # * travel_times_tensor
         )
 
+        # time_constraints = torch.from_numpy(
+        #     np.array(tsp_data[route_idx].time_constraints)
+        # ).type(torch.FloatTensor)
+        time_constraints = tsp_data[route_idx].time_constraints
+
+        for tdx, idx in enumerate(tsp_data[route_idx].zone_info_dict.values()):
+            time_constraints[idx] = (
+                tc_tensor[route_idx][tdx][0],
+                tc_tensor[route_idx][tdx][1],
+            )
+
         pred_tv = compute_time_violation_seq(
-            travel_times_tensor, tc_tensor[route_idx], pred_seq
+            travel_times_tensor, time_constraints, pred_seq
         )
         demo_tv = compute_time_violation_seq(
             travel_times_tensor,
-            tc_tensor[route_idx],
+            time_constraints,
             tsp_data[route_idx].label,
         )
 
@@ -190,22 +217,24 @@ def irl_loss(batch_output, thetas_tensor, tc_tensor, tsp_data, model):
 
         if tsp_data[route_idx].route_score == RouteScoreType.High:
             route_loss = HIGH_SCORE_GAIN * F.relu(
-                torch.log(demo_cost + lamb * demo_tv)
-                - torch.log(pred_cost + lamb * pred_tv)
+                (demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv)
             )
-        elif tsp_data[route_idx].route_score == RouteScoreType.Low:
-            route_loss = LOW_SCORE_GAIN * F.relu(
-                torch.log(pred_cost + lamb * pred_tv)
-                - torch.log(demo_cost + lamb * demo_tv)
-            )
+            # route_loss = HIGH_SCORE_GAIN * F.relu(
+            #     torch.log(demo_cost) - torch.log(pred_cost)
+            # )
+        # elif tsp_data[route_idx].route_score == RouteScoreType.Low:
+        #     route_loss = LOW_SCORE_GAIN * F.relu(
+        #         torch.log(pred_cost + lamb * pred_tv)
+        #         - torch.log(demo_cost + lamb * demo_tv)
+        #     )
 
-        tc_loss = 0.0
-        for jdx, tc in enumerate(tsp_data[route_idx].time_constraints):
-            if tc[1] - tc[0] < 3.0 * 3600:
-                tc_loss += ((tc[1] - tc[0]) / 2 - tc_tensor[route_idx][jdx][0]) ** 2
-                # tc_loss += ((tc[1] - tc[0]) - tc_tensor[route_idx][jdx][1]) ** 2
+        # tc_loss = 0.0
+        # for jdx, tc in enumerate(tsp_data[route_idx].time_constraints):
+        #     if tc[1] - tc[0] < 3.0 * 3600:
+        #         tc_loss += ((tc[1] - tc[0]) / 2 - tc_tensor[route_idx][jdx][0]) ** 2
+        # tc_loss += ((tc[1] - tc[0]) - tc_tensor[route_idx][jdx][1]) ** 2
 
-        loss += route_loss + tc_loss
+        loss += route_loss
         all_demo_tv += demo_tv
         all_pred_tv += pred_tv
 
@@ -227,13 +256,17 @@ def process(models, nn_datas, tsp_data):
 
     stack_seq_data = torch.cat(seq_nn_data, 0)
     stack_seq_data = stack_seq_data.to(device)
-    seq_obj_matrix = seq_model(stack_seq_data, tc_len_scheduler.curr_len)
+    # seq_obj_matrix = seq_model(stack_seq_data, tc_len_scheduler.curr_len)
+    seq_obj_matrix = seq_model(stack_seq_data)
+
+    print(seq_obj_matrix)
 
     idx_so_far = 0
     seq_idx_so_far = 0
     thetas_np = []
     thetas_tensor = []
     seq_tensor = []
+
     # seq_np = []
     for idx, data in enumerate(tsp_data):
         route_len = data.travel_times.shape[0]
@@ -243,9 +276,13 @@ def process(models, nn_datas, tsp_data):
             )
         )
 
+        num_z_stops = len(data.zone_info_dict.values())
+
         seq_tensor.append(
-            seq_obj_matrix[seq_idx_so_far : (seq_idx_so_far + route_len), :]
+            seq_obj_matrix[seq_idx_so_far : (seq_idx_so_far + num_z_stops), :]
         )
+
+        # print(f"Route {idx}, TC: {seq_tensor[idx]}")
 
         theta = thetas_tensor[idx].clone()
         theta = theta.cpu().detach().numpy()
@@ -256,7 +293,10 @@ def process(models, nn_datas, tsp_data):
         # seq_np.append(theta_seq)
 
         idx_so_far += route_len * route_len
-        seq_idx_so_far += route_len
+        seq_idx_so_far += num_z_stops
+
+    # for s in seq_tensor:
+    #     s.retain_grad()
 
     tc_list, tc_list_tensor = tc_tensor_to_tuple_list(seq_tensor)
 
@@ -272,6 +312,7 @@ def process(models, nn_datas, tsp_data):
                 data.label,
                 tc_list[idx],
                 data.depot,
+                data.zone_info_dict,
             )
         )
 
@@ -302,6 +343,7 @@ def process(models, nn_datas, tsp_data):
         seq_thetas_norm,
         pred_tv,
         demo_tv,
+        # seq_tensor,
     )
 
 
@@ -318,20 +360,33 @@ def train(
 ):
     model, seq_model = models
     model.train()
-    seq_model.train()
+
+    print("SETTING THE 2ND MODEL TO EVAL")
+    seq_model.eval()
 
     train_score = []
     train_loss = []
 
-    tc_len_scheduler.update(epoch_idx)
+    # tc_len_scheduler.update(epoch_idx)
 
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
         start_time = time.time()
-        nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
+        nn_data, tsp_data, scaled_tc_data, seq_nn_data, _ = data
         optimizer.zero_grad()
 
-        (loss, batch_output, thetas_norm, seq_thetas_norm, pred_tv, demo_tv,) = process(
+        # for params in seq_model.parameters():
+        #     params.retain_grad()
+
+        (
+            loss,
+            batch_output,
+            thetas_norm,
+            seq_thetas_norm,
+            pred_tv,
+            demo_tv,
+            # seq_tensor,
+        ) = process(
             (model, seq_model),
             (nn_data, seq_nn_data),
             tsp_data,
@@ -342,6 +397,12 @@ def train(
         if epoch_idx != 0 or config.train_on_first:
             loss.backward()
             optimizer.step()
+
+        # for s in seq_tensor:
+        #     print(s.grad)
+
+        # for params in seq_model.parameters():
+        #     print(params.grad)
 
         learning_rate = optimizer.param_groups[0]["lr"]
 
@@ -434,7 +495,7 @@ def eval(models, dataloader, writer, config, epoch_idx):
 
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):
-        nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
+        nn_data, tsp_data, scaled_tc_data, seq_nn_data, _ = data
 
         (loss, batch_output, thetas_norm, seq_thetas_norm, pred_tv, demo_tv,) = process(
             (model, seq_model),
@@ -500,7 +561,10 @@ def main(config):
     print(model)
 
     num_tc_features = 2 + config.data.num_stop_features + config.data.num_route_features
-    seq_model = TC_Model(num_features=num_tc_features, out_features=2)
+    # seq_model = TC_Model(num_features=num_tc_features, out_features=1)
+    # seq_model = seq_model.to(device)
+    # print(seq_model)
+    seq_model = ARC_Classifier(num_tc_features)
     seq_model = seq_model.to(device)
     print(seq_model)
 
@@ -514,8 +578,8 @@ def main(config):
         seq_model.load_state_dict(chkpt)
         print(OKBLUE + "Loaded Weights from :{}".format(config.seq_save_path) + ENDC)
 
-    params = list(model.parameters()) + list(seq_model.parameters())
-    # params = seq_model.parameters()
+    # params = list(model.parameters()) + list(seq_model.parameters())
+    params = model.parameters()
     optimizer = optim.Adam(params, lr=config.learning_rate)
 
     def lr_lambda(epch):

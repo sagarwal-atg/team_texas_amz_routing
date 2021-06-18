@@ -51,17 +51,33 @@ class RouteDatum:
     def get_zone_ohc(self):
 
         zone_d = self.zone_d
-        enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
+        # enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
         zone_list = list(zone_d.values())
-        ohc_zones = enc.fit_transform(np.array(zone_list).reshape(len(zone_list), 1))
-        num_zones = enc.categories_[0].shape[0]
+        # ohc_zones = enc.fit_transform(np.array(zone_list).reshape(len(zone_list), 1))
+        # num_zones = enc.categories_[0].shape[0]
 
-        zone_mat = [None] * len(zone_list)
-        for idx, _ in enumerate(zone_d):
-            zone_mat[idx] = ohc_zones[idx]
+        # zone_mat = [None] * len(zone_list)
+        # for idx, _ in enumerate(zone_d):
+        #     zone_mat[idx] = ohc_zones[idx]
 
-        ret_np = np.array(zone_mat)
+        # ret_np = np.array(zone_mat)
+        ret_np = np.array(zone_list).reshape(len(zone_list), 1)
         return ret_np.T
+
+    # def get_stop_zones_ohc(self):
+
+    #     zone_d = self.zone_d
+    #     enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
+    #     zone_list = list(zone_d.values())
+    #     ohc_zones = enc.fit_transform(np.array(zone_list).reshape(len(zone_list), 1))
+    #     num_zones = enc.categories_[0].shape[0]
+
+    #     zone_mat = [None] * len(zone_list)
+    #     for idx, _ in enumerate(zone_d):
+    #         zone_mat[idx] = ohc_zones[idx]
+
+    #     ret_np = np.array(zone_mat)
+    #     return ret_np.T
 
     def get_zones(self, stop_ids: List[str] = None) -> Dict[str, str]:
         """
