@@ -404,14 +404,13 @@ class IRLNNDataset(Dataset):
 
                 my_dict = package_data[route_id].get_package_info()
 
-                zone_mat = route_data[route_id].get_zone_mat(max_num_zones)
+                # zone_mat = route_data[route_id].get_zone_mat(max_num_zones)
 
                 # add any other functions here for more link features.
                 return np.array(
                     [
                         zone_crossings,
                         geo_dist_mat,
-                        zone_mat,
                         my_dict["num_package_dest"],
                         my_dict["num_package_source"],
                         my_dict["total_service_time_dest"],
@@ -468,7 +467,7 @@ class IRLNNDataset(Dataset):
                 label = sequence_data[route_id].get_sorted_route_by_index()
                 stop_ids, travel_time_dict = get_scoring_function_inputs(route_id)
                 binary_mat = seq_binary_mat(label)
-                depot = route_data[route_id].get_depot()
+                depot, depot_idx = route_data[route_id].get_depot()
                 closest_idxs_for_route = None
                 if data_config.num_neighbors > 1:
                     closest_idxs_for_route = find_closest_idx(
@@ -486,7 +485,7 @@ class IRLNNDataset(Dataset):
                     binary_mat=binary_mat,
                     closest_idxs_for_route=closest_idxs_for_route,
                     route_score=route_score_,
-                    depot=depot,
+                    depot=depot_idx,
                 )
 
                 route_scores_dict[route_score_.name] = (
@@ -624,7 +623,7 @@ class IRLNNDataset(Dataset):
             )
 
             # Seq Data
-            seq_data_np = np.zeros((route_len, MAX_ROUTE_LEN * self.num_features))
+            seq_data_np = -1 * np.ones((route_len, MAX_ROUTE_LEN * self.num_features))
             for rdx in range(route_len):
                 seq_data_np[rdx, : (route_len * self.num_features)] = nn_data_np[
                     rdx * (route_len) : (rdx + 1) * route_len

@@ -30,7 +30,7 @@ from dataloaders.utils import (
     TrainTest,
 )
 from eval_utils.score import score
-from models.irl_models import IRL_Neighbor_Model, IRLModel
+from models.irl_models import IRLModel, TC_Model
 from training_utils.arg_utils import get_args, setup_training_output
 from tsp_solvers import constrained_tsp
 
@@ -62,6 +62,23 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     return violation_up + violation_down
 
 
+def tc_tensor_to_tuple_list(tc_tensor):
+    tc_list = []
+    tc_list_tensor = []
+    for route in tc_tensor:
+        tc_route_list = []
+        tc_route_list_tensor = []
+        for tc in route:
+            start = (tc - 1) * 60
+            end = (tc + 1) * 60
+            tc_route_list_tensor.append((start, end))
+            tc_route_list.append((start.clone().detach(), end.clone().detach()))
+        tc_list.append(tc_route_list)
+        tc_list_tensor.append(tc_route_list_tensor)
+
+    return tc_list, tc_list_tensor
+
+
 def compute_tsp_seq_for_route(data, lamb):
     (
         objective_matrix,
@@ -70,7 +87,7 @@ def compute_tsp_seq_for_route(data, lamb):
         stop_ids,
         travel_time_dict,
         label,
-        seq_obj_mat,
+        tc_list,
         depot,
     ) = data
 
@@ -80,10 +97,10 @@ def compute_tsp_seq_for_route(data, lamb):
     ###########
     try:
         pred_seq = constrained_tsp.constrained_tsp(
-            objective_matrix * seq_obj_mat * travel_times,
-            # seq_obj_mat * travel_times,
+            # objective_matrix * seq_obj_mat * travel_times,
+            objective_matrix + travel_times,
             travel_times,
-            time_constraints,
+            tc_list,
             depot=depot,
             lamb=int(lamb),
         )
@@ -97,15 +114,12 @@ def compute_tsp_seq_for_route(data, lamb):
             lamb=int(lamb),
         )
 
-    pred_tv = compute_time_violation_seq(travel_times, time_constraints, pred_seq)
-    demo_tv = compute_time_violation_seq(travel_times, time_constraints, label)
-
     pred_stop_ids = [stop_ids[j] for j in pred_seq]
     pred_stop_ids.append(pred_stop_ids[0])
 
     seq_score = score(demo_stop_ids, pred_stop_ids, travel_time_dict)
 
-    return (pred_seq, demo_tv, pred_tv, seq_score)
+    return (pred_seq, seq_score)
 
 
 def compute_tsp_seq_for_a_batch(batch_data, lamb):
@@ -116,22 +130,31 @@ def compute_tsp_seq_for_a_batch(batch_data, lamb):
     return batch_output
 
 
-def irl_loss(batch_output, thetas_tensor, seq_tensor, tsp_data, model):
+def irl_loss(batch_output, thetas_tensor, tc_tensor, tsp_data, model):
 
     loss = 0.0
+    all_pred_tv = 0.0
+    all_demo_tv = 0.0
     for route_idx in range(len(batch_output)):
         pred_seq = batch_output[route_idx][0]
-        demo_tv = batch_output[route_idx][1]
-        pred_tv = batch_output[route_idx][2]
 
         travel_times_tensor = torch.from_numpy(tsp_data[route_idx].travel_times)
 
         obj_data_tensor = (
-            # seq_tensor[route_idx]
-            # * travel_times_tensor
             thetas_tensor[route_idx]
-            * seq_tensor[route_idx]
-            * travel_times_tensor
+            + travel_times_tensor
+            # thetas_tensor[route_idx]
+            # * seq_tensor[route_idx]
+            # * travel_times_tensor
+        )
+
+        pred_tv = compute_time_violation_seq(
+            tsp_data[route_idx].travel_times, tc_tensor[route_idx], pred_seq
+        )
+        demo_tv = compute_time_violation_seq(
+            tsp_data[route_idx].travel_times,
+            tc_tensor[route_idx],
+            tsp_data[route_idx].label,
         )
 
         pred_cost = torch.sum(
@@ -143,21 +166,28 @@ def irl_loss(batch_output, thetas_tensor, seq_tensor, tsp_data, model):
             * obj_data_tensor
         )
 
+        lamb = 1.0
+        # lamb = model.lamb
+
         if tsp_data[route_idx].route_score == RouteScoreType.High:
             route_loss = HIGH_SCORE_GAIN * F.relu(
-                (demo_cost + model.lamb * demo_tv) - (pred_cost + model.lamb * pred_tv)
+                (demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv)
             )
-        elif tsp_data[route_idx].route_score == RouteScoreType.Low:
-            route_loss = LOW_SCORE_GAIN * F.relu(
-                torch.log(pred_cost + model.lamb * pred_tv)
-                - torch.log(demo_cost + model.lamb * demo_tv)
-            )
+        # elif tsp_data[route_idx].route_score == RouteScoreType.Low:
+        #     route_loss = LOW_SCORE_GAIN * F.relu(
+        #         torch.log(pred_cost + lamb * pred_tv)
+        #         - torch.log(demo_cost + lamb * demo_tv)
+        #     )
 
         loss += route_loss
+        all_demo_tv += demo_tv
+        all_pred_tv += pred_tv
 
     loss = loss / len(batch_output)
+    all_demo_tv = all_demo_tv / len(all_demo_tv)
+    all_pred_tv = all_pred_tv / len(all_pred_tv)
 
-    return loss
+    return (loss, all_pred_tv, all_demo_tv)
 
 
 def process(models, nn_datas, tsp_data):
@@ -178,7 +208,7 @@ def process(models, nn_datas, tsp_data):
     thetas_np = []
     thetas_tensor = []
     seq_tensor = []
-    seq_np = []
+    # seq_np = []
     for idx, data in enumerate(tsp_data):
         route_len = data.travel_times.shape[0]
         thetas_tensor.append(
@@ -188,19 +218,23 @@ def process(models, nn_datas, tsp_data):
         )
 
         seq_tensor.append(
-            seq_obj_matrix[seq_idx_so_far : (seq_idx_so_far + route_len), :route_len]
+            seq_obj_matrix[seq_idx_so_far : (seq_idx_so_far + route_len), :]
         )
 
         theta = thetas_tensor[idx].clone()
         theta = theta.cpu().detach().numpy()
         thetas_np.append(theta)
 
-        theta_seq = seq_tensor[idx].clone()
-        theta_seq = theta_seq.cpu().detach().numpy()
-        seq_np.append(theta_seq)
+        # theta_seq = seq_tensor[idx].clone()
+        # theta_seq = theta_seq.cpu().detach().numpy()
+        # seq_np.append(theta_seq)
 
         idx_so_far += route_len * route_len
         seq_idx_so_far += route_len
+
+    seq_tensor[0].retain_grad()
+
+    tc_list, tc_list_tensor = tc_tensor_to_tuple_list(seq_tensor)
 
     batch_data = []
     for idx, data in enumerate(tsp_data):
@@ -212,16 +246,20 @@ def process(models, nn_datas, tsp_data):
                 data.stop_ids,
                 data.travel_time_dict,
                 data.label,
-                seq_np[idx],
+                tc_list[idx],
                 data.depot,
             )
         )
 
-    batch_output = compute_tsp_seq_for_a_batch(
-        batch_data, model.get_lambda().clone().detach().numpy()
-    )
+    # data = compute_tsp_seq_for_route(
+    #     batch_data[0], model.get_lambda().clone().detach().numpy()
+    # )
 
-    loss = irl_loss(batch_output, thetas_tensor, seq_tensor, tsp_data, model)
+    batch_output = compute_tsp_seq_for_a_batch(batch_data, 1.0)
+
+    loss, pred_tv, demo_tv = irl_loss(
+        batch_output, thetas_tensor, tc_list_tensor, tsp_data, model
+    )
 
     thetas_norm_sum = 0
     for tht in thetas_tensor:
@@ -233,7 +271,15 @@ def process(models, nn_datas, tsp_data):
         seq_thetas_norm_sum += torch.norm(stht)
     seq_thetas_norm = seq_thetas_norm_sum / len(seq_tensor)
 
-    return (loss, batch_output, thetas_norm, seq_thetas_norm)
+    return (
+        loss,
+        batch_output,
+        thetas_norm,
+        seq_thetas_norm,
+        pred_tv,
+        demo_tv,
+        seq_tensor[0],
+    )
 
 
 def train(
@@ -260,7 +306,15 @@ def train(
         nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
         optimizer.zero_grad()
 
-        loss, batch_output, thetas_norm, seq_thetas_norm = process(
+        (
+            loss,
+            batch_output,
+            thetas_norm,
+            seq_thetas_norm,
+            pred_tv,
+            demo_tv,
+            seq_ten,
+        ) = process(
             (model, seq_model),
             (nn_data, seq_nn_data),
             tsp_data,
@@ -272,10 +326,12 @@ def train(
             loss.backward()
             optimizer.step()
 
+        print(seq_ten.grad)
+
         learning_rate = optimizer.param_groups[0]["lr"]
 
         res = list(zip(*batch_output))
-        batch_seq_score = np.array(res[3])
+        batch_seq_score = np.array(res[1])
 
         mean_score = np.mean(batch_seq_score)
         train_loss.append(loss.item())
@@ -292,7 +348,8 @@ def train(
 
         print(
             "Epoch: {}, Step: {}, Loss: {:0.2f}, Score: {:0.3f}, Time: {:0.2f} sec,"
-            " Lambda: {:0.2f}, LR: {:0.2f}, Theta Norm: {:0.2f}, Seq Thetas Norm: {:0.2f}".format(
+            " Lambda: {:0.2f}, LR: {:0.2f}, Theta Norm: {:0.2f}, Seq Thetas Norm: {:0.2f}"
+            "Pred tv: {:0.2f}, Demo tv: {:0.2f}".format(
                 epoch_idx,
                 d_idx,
                 loss.item(),
@@ -302,6 +359,8 @@ def train(
                 learning_rate,
                 thetas_norm,
                 seq_thetas_norm,
+                pred_tv.item(),
+                demo_tv.item(),
             )
         )
 
@@ -369,7 +428,7 @@ def eval(models, dataloader, writer, config, epoch_idx):
         )
 
         res = list(zip(*batch_output))
-        batch_seq_score = np.array(res[3])
+        batch_seq_score = np.array(res[1])
 
         mean_score = np.mean(batch_seq_score)
         eval_loss.append(loss.item())
@@ -425,9 +484,7 @@ def main(config):
     model = model.to(device)
     print(model)
 
-    seq_model = IRLModel(
-        num_features=(MAX_ROUTE_LEN * num_features), out_features=MAX_ROUTE_LEN
-    )
+    seq_model = TC_Model(num_features=(MAX_ROUTE_LEN * num_features), out_features=1)
     seq_model = seq_model.to(device)
     print(seq_model)
 

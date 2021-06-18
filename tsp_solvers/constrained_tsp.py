@@ -92,7 +92,8 @@ def constrained_tsp(
     for vehicle_id in range(data["num_vehicles"]):
         index = routing.Start(vehicle_id)
         time_dimension.CumulVar(index).SetRange(
-            data["time_windows"][depot_idx][0], data["time_windows"][depot_idx][1]
+            int(data["time_windows"][depot_idx][0]),
+            int(data["time_windows"][depot_idx][1]),
         )
 
     # Instantiate route start and end times to produce feasible times.

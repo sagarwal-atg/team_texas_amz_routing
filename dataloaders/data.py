@@ -18,9 +18,10 @@ class RouteDatum:
         return list(self._data["stops"].keys())
 
     def get_depot(self) -> str:
-        for key, stop in self.get_stops(self._data.stops).items():
-            if stop["type"] != "Dropoff":
-                return key
+        stops = self.get_stops()
+        for idx, key in enumerate(stops):
+            if stops[key]["type"] != "Dropoff":
+                return key, idx
 
     def get_stops(self, stop_ids: List[str] = None):
         stops = self._data.stops
