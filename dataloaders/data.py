@@ -12,6 +12,9 @@ class RouteDatum:
     def __init__(self, data):
         self._data = Munch(data)
 
+    def get_stop_ids(self):
+        return list(self._data["stops"].keys())
+
     def get_stops(self, stop_ids: List[str] = None):
         stops = self._data.stops
         if stop_ids:
@@ -62,6 +65,12 @@ class RouteDatum:
                 geo_dist_mat[adx, bdx] = self.get_geo_dist(stop_id_a, stop_id_b)
 
         return geo_dist_mat
+
+    def get_depot(self) -> str:
+        stops = self.get_stops()
+        for idx, key in enumerate(stops):
+            if stops[key]["type"] != "Dropoff":
+                return key, idx
 
 
 class SequenceDatum:
