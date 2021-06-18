@@ -14,10 +14,21 @@ from tensorboardX import SummaryWriter
 from torch import optim
 from tqdm import tqdm
 
-from dataloaders.irl_dataset import (MAX_ROUTE_LEN, IRLNNDataset,
-                                     irl_nn_collate, seq_binary_mat)
-from dataloaders.utils import (ENDC, OKBLUE, OKGREEN, OKRED, OKYELLOW,
-                               RouteScoreType, TrainTest)
+from dataloaders.irl_dataset import (
+    MAX_ROUTE_LEN,
+    IRLNNDataset,
+    irl_nn_collate,
+    seq_binary_mat,
+)
+from dataloaders.utils import (
+    ENDC,
+    OKBLUE,
+    OKGREEN,
+    OKRED,
+    OKYELLOW,
+    RouteScoreType,
+    TrainTest,
+)
 from eval_utils.score import score
 from models.irl_models import IRLModel, TC_Model
 from training_utils.arg_utils import get_args, setup_training_output
@@ -28,6 +39,23 @@ device = torch.device("cpu")
 HIGH_SCORE_GAIN = 1.0
 MEDIUM_SCORE_GAIN = 1.0
 LOW_SCORE_GAIN = 1.0
+
+
+class TC_Len_Scheduler:
+    def __init__(self, start_len, finish_len, num_epochs):
+        self.num_epochs = num_epochs
+        self.arr = np.linspace(start_len, finish_len, num_epochs)
+        self.curr_len = start_len
+
+    def update(self, curr_epoch_idx):
+        if curr_epoch_idx > self.num_epochs:
+            self.curr_len = self.arr[-1]
+        else:
+            self.curr_len = self.arr[curr_epoch_idx]
+        print(self.curr_len)
+
+
+tc_len_scheduler = TC_Len_Scheduler(6.0, 2.0, 20)
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -171,7 +199,13 @@ def irl_loss(batch_output, thetas_tensor, tc_tensor, tsp_data, model):
                 - torch.log(demo_cost + lamb * demo_tv)
             )
 
-        loss += route_loss
+        tc_loss = 0.0
+        for jdx, tc in enumerate(tsp_data[route_idx].time_constraints):
+            if tc[1] - tc[0] < 3.0 * 3600:
+                tc_loss += ((tc[1] - tc[0]) / 2 - tc_tensor[route_idx][jdx][0]) ** 2
+                # tc_loss += ((tc[1] - tc[0]) - tc_tensor[route_idx][jdx][1]) ** 2
+
+        loss += route_loss + tc_loss
         all_demo_tv += demo_tv
         all_pred_tv += pred_tv
 
@@ -193,7 +227,7 @@ def process(models, nn_datas, tsp_data):
 
     stack_seq_data = torch.cat(seq_nn_data, 0)
     stack_seq_data = stack_seq_data.to(device)
-    seq_obj_matrix = seq_model(stack_seq_data)
+    seq_obj_matrix = seq_model(stack_seq_data, tc_len_scheduler.curr_len)
 
     idx_so_far = 0
     seq_idx_so_far = 0
@@ -288,6 +322,8 @@ def train(
 
     train_score = []
     train_loss = []
+
+    tc_len_scheduler.update(epoch_idx)
 
     paths_so_far = 0
     for d_idx, data in enumerate(dataloader):

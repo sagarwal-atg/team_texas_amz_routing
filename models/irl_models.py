@@ -83,13 +83,12 @@ class TC_Model(nn.Module):
         param = torch.FloatTensor([1.24744]).type(torch.FloatTensor)
         self.lamb = torch.nn.Parameter(param, requires_grad=True)
 
-    def forward(self, x):
+    def forward(self, x, curr_len):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        x = torch.sigmoid(x)
-        x[:, 0] = 8 * x[:, 0]
-        x[:, 1] = 4 * x[:, 1]
+        x[:, 0] = torch.sigmoid(x[:, 0]) * 8
+        x[:, 1] = torch.sigmoid(x[:, 1]) * curr_len
         return x
 
     def get_lambda(self):

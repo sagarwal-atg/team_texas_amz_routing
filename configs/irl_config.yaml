@@ -34,7 +34,7 @@ batch_size: 8
 num_train_epochs: 400
 eval_iter: 10
 learning_rate: 0.1
-lr_lambda: 0.99
+lr_lambda: 0.9
 
 
 # save_path: '../trained_models/norm_test/best_score_norm_test.pt'
