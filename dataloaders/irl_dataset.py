@@ -40,6 +40,7 @@ IRLData = namedtuple(
         "binary_mat",
         "closest_idxs_for_route",
         "route_score",
+        "route_id",
     ],
 )
 
@@ -55,6 +56,7 @@ IRL_Eval_Data = namedtuple(
         "closest_idxs_for_route",
         "route_score",
         "depot",
+        "route_id",
     ],
 )
 
@@ -495,6 +497,7 @@ class IRLNNDataset(Dataset):
                     binary_mat=binary_mat,
                     closest_idxs_for_route=closest_idxs_for_route,
                     route_score=route_score_,
+                    route_id=route_id,
                 )
 
                 route_scores_dict[route_score_.name] = (
@@ -846,6 +849,7 @@ class IRL_NN_Eval_Dataset(Dataset):
                     closest_idxs_for_route=closest_idxs_for_route,
                     route_score=route_score_,
                     depot=depot_idx,
+                    route_id=route_id,
                 )
 
                 route_scores_dict[route_score_.name] = (
