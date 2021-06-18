@@ -87,7 +87,9 @@ class TC_Model(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        x = torch.sigmoid(x) * 8
+        x = torch.sigmoid(x)
+        x[:, 0] = 8 * x[:, 0]
+        x[:, 1] = 4 * x[:, 1]
         return x
 
     def get_lambda(self):

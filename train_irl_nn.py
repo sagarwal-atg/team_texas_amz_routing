@@ -60,8 +60,8 @@ def tc_tensor_to_tuple_list(tc_tensor):
         tc_route_list = []
         tc_route_list_tensor = []
         for tc in route:
-            start = torch.max(torch.zeros(1), (tc - 2) * 3600)
-            end = (tc + 2) * 3600
+            start = torch.max(torch.zeros(1), (tc[0] - tc[1]) * 3600)
+            end = (tc[0] + tc[1]) * 3600
             tc_route_list_tensor.append([start, end])
             tc_route_list.append((start.clone().detach(), end.clone().detach()))
         tc_list.append(tc_route_list)
@@ -464,7 +464,7 @@ def main(config):
     print(model)
 
     num_tc_features = 2 + config.data.num_stop_features + config.data.num_route_features
-    seq_model = TC_Model(num_features=num_tc_features, out_features=1)
+    seq_model = TC_Model(num_features=num_tc_features, out_features=2)
     seq_model = seq_model.to(device)
     print(seq_model)
 

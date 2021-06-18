@@ -13,14 +13,8 @@ from sklearn import preprocessing
 from torch.utils import data
 from torch.utils.data import Dataset
 
-from .data import (
-    PackageData,
-    RouteData,
-    RouteDatum,
-    SequenceData,
-    TravelTimeData,
-    TravelTimeDatum,
-)
+from .data import (PackageData, RouteData, RouteDatum, SequenceData,
+                   TravelTimeData, TravelTimeDatum)
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
 IntMatrix = NDArray[(Any, Any), np.int32]
