@@ -34,20 +34,34 @@ class RouteDatum:
         zone_d = self.zone_d
         enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
         zone_list = list(zone_d.values())
-        enc.fit(np.array(zone_list).reshape(len(zone_list), 1))
+        ohc_zone = enc.fit_transform(np.array(zone_list).reshape(len(zone_list), 1))
         num_zones = enc.categories_[0].shape[0]
 
         zone_mat = [[None] * len(zone_list)] * len(zone_list)
-        for idx, stop_a in enumerate(zone_d):
-            for jdx, stop_b in enumerate(zone_d):
+        for idx, _ in enumerate(zone_d):
+            for jdx, _ in enumerate(zone_d):
                 zone_np = np.zeros((max_num_zones,))
-                zone_np[:num_zones] = enc.transform(
-                    np.array(zone_d[stop_a]).reshape(1, 1)
-                ) + enc.transform(np.array(zone_d[stop_b]).reshape(1, 1))
+                # zone_np[:num_zones] = enc.transform(
+                #     np.array(zone_d[stop_a]).reshape(1, 1)
+                # ) + enc.transform(np.array(zone_d[stop_b]).reshape(1, 1))
+                zone_np[:num_zones] = ohc_zone[idx] + ohc_zone[jdx]
                 zone_mat[idx][jdx] = zone_np
+        return np.array(zone_mat)
 
-        ret_np = np.array(zone_mat).squeeze(2)
-        return ret_np
+    def get_zone_ohc(self):
+
+        zone_d = self.zone_d
+        enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
+        zone_list = list(zone_d.values())
+        ohc_zones = enc.fit_transform(np.array(zone_list).reshape(len(zone_list), 1))
+        num_zones = enc.categories_[0].shape[0]
+
+        zone_mat = [None] * len(zone_list)
+        for idx, _ in enumerate(zone_d):
+            zone_mat[idx] = ohc_zones[idx]
+
+        ret_np = np.array(zone_mat)
+        return ret_np.T
 
     def get_zones(self, stop_ids: List[str] = None) -> Dict[str, str]:
         """
@@ -85,6 +99,14 @@ class RouteDatum:
 
         return haversine(stop_a_, stop_b_)
 
+    def get_lat_long(self, stop_ids):
+        lat_long = np.zeros((2, len(stop_ids)))
+        for adx, stop_id_a in enumerate(stop_ids):
+            stop_a_dict = self._data.stops[stop_id_a]
+            lat_long[0, adx] = stop_a_dict["lat"]
+            lat_long[1, adx] = stop_a_dict["lng"]
+        return lat_long
+
     def get_geo_dist_mat(self, stop_ids):
         geo_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))
         for adx, stop_id_a in enumerate(stop_ids):
@@ -94,12 +116,12 @@ class RouteDatum:
 
         return geo_dist_mat
 
-    def get_depot_distance_mat(self, stop_ids):
-        depot_dist_mat = np.zeros((len(stop_ids), len(stop_ids)))
-        depot = self.get_depot()
+    def get_depot_distance_(self, stop_ids):
+        depot_dist_ = np.zeros((len(stop_ids)))
+        depot, _ = self.get_depot()
         for adx, stop_id_a in enumerate(stop_ids):
-            depot_dist_mat[adx, :] = self.get_geo_dist(depot, stop_id_a)
-        return depot_dist_mat
+            depot_dist_[adx] = self.get_geo_dist(depot, stop_id_a)
+        return depot_dist_
 
 
 class SequenceDatum:

@@ -43,6 +43,7 @@ IRLData = namedtuple(
         "closest_idxs_for_route",
         "route_score",
         "depot",
+        "stop_features",
     ],
 )
 
@@ -392,34 +393,46 @@ class IRLNNDataset(Dataset):
                 """
                 stop_ids = route_data[route_id].get_stop_ids()
 
-                # add service time to travel time matrix
-                # times = extract_travel_times(travel_time_data[route_id], stop_ids)
-                # ser_times = package_data.find_service_times(stop_ids)
-                # times += ser_times
-                # times = right_pad2d(times, self.max_route_len, 0)
-
                 zone_crossings = extract_zone_crossings(route_data[route_id], stop_ids)
                 # zone_crossings = right_pad2d(zone_crossings, self.max_route_len, 1)
                 geo_dist_mat = route_data[route_id].get_geo_dist_mat(stop_ids)
 
-                my_dict = package_data[route_id].get_package_info()
-
                 # zone_mat = route_data[route_id].get_zone_mat(max_num_zones)
 
                 # add any other functions here for more link features.
-                return np.array(
+                return np.array([zone_crossings, geo_dist_mat])
+
+            def get_stop_features(route_id, time_constraints):
+                stop_ids = route_data[route_id].get_stop_ids()
+
+                # zone_ohc = route_data[route_id].get_zone_ohc()
+                depot_dist_ = (
+                    route_data[route_id].get_depot_distance_(stop_ids).reshape(-1, 1).T
+                )
+                lat_long = route_data[route_id].get_lat_long(stop_ids)
+
+                # tc_data = np.array(time_constraints).T
+
+                my_dict = package_data[route_id].get_package_info()
+
+                num_packs = my_dict["num_package_source"][0].reshape(-1, 1).T
+                service_time = my_dict["total_service_time_source"][0].reshape(-1, 1).T
+                largest_vol = (
+                    my_dict["largest_package_volume_source"][0].reshape(-1, 1).T
+                )
+                avg_vol = my_dict["avg_volume_of_package_source"][0].reshape(-1, 1).T
+
+                return np.concatenate(
                     [
-                        zone_crossings,
-                        geo_dist_mat,
-                        my_dict["num_package_dest"],
-                        my_dict["num_package_source"],
-                        my_dict["total_service_time_dest"],
-                        my_dict["total_service_time_source"],
-                        my_dict["largest_package_volume_dest"],
-                        my_dict["largest_package_volume_source"],
-                        my_dict["avg_volume_of_package_dest"],
-                        my_dict["avg_volume_of_package_source"],
-                    ]
+                        depot_dist_,
+                        lat_long,
+                        # tc_data,
+                        num_packs,
+                        service_time,
+                        largest_vol,
+                        avg_vol,
+                    ],
+                    axis=0,
                 )
 
             def get_travel_time(route_id):
@@ -469,6 +482,7 @@ class IRLNNDataset(Dataset):
                 binary_mat = seq_binary_mat(label)
                 depot, depot_idx = route_data[route_id].get_depot()
                 closest_idxs_for_route = None
+                stop_features = get_stop_features(route_id, time_constraints)
                 if data_config.num_neighbors > 1:
                     closest_idxs_for_route = find_closest_idx(
                         travel_times, data_config.num_neighbors
@@ -486,6 +500,7 @@ class IRLNNDataset(Dataset):
                     closest_idxs_for_route=closest_idxs_for_route,
                     route_score=route_score_,
                     depot=depot_idx,
+                    stop_features=stop_features,
                 )
 
                 route_scores_dict[route_score_.name] = (
@@ -525,17 +540,20 @@ class IRLNNDataset(Dataset):
         num_routes = len(self.x)
         num_link_features = data_config.num_link_features
         num_route_features = data_config.num_route_features
+        num_stop_features = data_config.num_stop_features
 
         self.num_features = 1 + num_link_features + num_route_features
+        self.num_tc_features = 2 + num_stop_features + num_route_features
 
         travel_times = [None] * num_routes
         route_features = np.zeros((num_routes, num_route_features))
         time_constraints = [None] * num_routes
 
         transformed_data = [None] * num_routes
-        seq_data = [None] * num_routes
+        stop_data = [None] * num_routes
 
         self.total_num_links = 0
+        self.total_num_stops = 0
         for idx, rdata in enumerate(self.x):
             tt = rdata.travel_times
             assert len(tt.shape) == 2
@@ -543,6 +561,7 @@ class IRLNNDataset(Dataset):
 
             travel_times[idx] = tt
             self.total_num_links += tt.shape[0] * tt.shape[0]
+            self.total_num_stops += tt.shape[0]
 
             rf = rdata.route_features
             assert (
@@ -552,6 +571,14 @@ class IRLNNDataset(Dataset):
             route_features[idx] = rf
 
             time_constraints[idx] = np.array(rdata.time_constraints)
+
+        stop_features = np.zeros((self.total_num_stops, num_stop_features))
+        idx_so_far = 0
+        for idx, rdata in enumerate(self.x):
+            sf = rdata.stop_features
+            num_stops = sf.shape[1]
+            stop_features[idx_so_far : (idx_so_far + num_stops)] = sf.T
+            idx_so_far += num_stops
 
         link_features = np.zeros((self.total_num_links, num_link_features))
         idx_so_far = 0
@@ -602,10 +629,14 @@ class IRLNNDataset(Dataset):
         rf_scaler = preprocessing.StandardScaler().fit(route_features)
         route_features = rf_scaler.transform(route_features)
 
-        lf_scaler = preprocessing.StandardScaler().fit(link_features[:, 2:])
-        link_features[:, 2:] = lf_scaler.transform(link_features[:, 2:])
+        # lf_scaler = preprocessing.StandardScaler().fit(link_features[:, 2:])
+        # link_features[:, 2:] = lf_scaler.transform(link_features[:, 2:])
+
+        st_scaler = preprocessing.StandardScaler().fit(stop_features[:, 1:])
+        stop_features[:, 1:] = st_scaler.transform(stop_features[:, 1:])
 
         idx_so_far = 0
+        jdx_so_far = 0
         for idx, data in enumerate(self.x):
             route_len = data.travel_times.shape[0]
 
@@ -622,18 +653,29 @@ class IRLNNDataset(Dataset):
                 * route_features[idx]
             )
 
-            # Seq Data
-            seq_data_np = -1 * np.ones((route_len, MAX_ROUTE_LEN * self.num_features))
-            for rdx in range(route_len):
-                seq_data_np[rdx, : (route_len * self.num_features)] = nn_data_np[
-                    rdx * (route_len) : (rdx + 1) * route_len
-                ].flatten()
+            # # Seq Data
+            # seq_data_np = -1 * np.ones((route_len, MAX_ROUTE_LEN * self.num_features))
+            # for rdx in range(route_len):
+            #     seq_data_np[rdx, : (route_len * self.num_features)] = nn_data_np[
+            #         rdx * (route_len) : (rdx + 1) * route_len
+            #     ].flatten()
+
+            stop_data_np = np.zeros((route_len, self.num_tc_features))
+            stop_data_np[:, :2] = tc_np[jdx_so_far : (jdx_so_far + route_len)]
+
+            stop_data_np[:, 2 : 2 + num_stop_features] = stop_features[
+                jdx_so_far : (jdx_so_far + route_len)
+            ]
+            stop_data_np[:, 2 + num_stop_features :] = (
+                np.ones((route_len, num_route_features)) * route_features[idx]
+            )
 
             transformed_data[idx] = nn_data_np
-            seq_data[idx] = seq_data_np
+            # seq_data[idx] = seq_data_np
+            stop_data[idx] = stop_data_np
             idx_so_far += route_len * route_len
 
-        return transformed_data, scaled_tc_data, seq_data
+        return transformed_data, scaled_tc_data, stop_data
 
     def add_neighbors(self, nn_data, num_neighbors, closest_idxs_for_route):
         new_nn_data = []

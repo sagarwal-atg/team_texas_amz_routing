@@ -14,21 +14,10 @@ from tensorboardX import SummaryWriter
 from torch import optim
 from tqdm import tqdm
 
-from dataloaders.irl_dataset import (
-    MAX_ROUTE_LEN,
-    IRLNNDataset,
-    irl_nn_collate,
-    seq_binary_mat,
-)
-from dataloaders.utils import (
-    ENDC,
-    OKBLUE,
-    OKGREEN,
-    OKRED,
-    OKYELLOW,
-    RouteScoreType,
-    TrainTest,
-)
+from dataloaders.irl_dataset import (MAX_ROUTE_LEN, IRLNNDataset,
+                                     irl_nn_collate, seq_binary_mat)
+from dataloaders.utils import (ENDC, OKBLUE, OKGREEN, OKRED, OKYELLOW,
+                               RouteScoreType, TrainTest)
 from eval_utils.score import score
 from models.irl_models import IRLModel, TC_Model
 from training_utils.arg_utils import get_args, setup_training_output
@@ -57,8 +46,10 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     violation_down, violation_up = 0, 0
     for idx in range(1, len(seq)):
         time += time_matrix[seq[idx - 1], seq[idx]]
-        violation_up += max(0, time - time_constraints[seq[idx]][1])
-        violation_down += max(0, time_constraints[seq[idx]][0] - time)
+        violation_up += torch.max(torch.zeros(1), time - time_constraints[seq[idx]][1])
+        violation_down += torch.max(
+            torch.zeros(1), time_constraints[seq[idx]][0] - time
+        )
     return violation_up + violation_down
 
 
@@ -69,9 +60,9 @@ def tc_tensor_to_tuple_list(tc_tensor):
         tc_route_list = []
         tc_route_list_tensor = []
         for tc in route:
-            start = (tc - 1) * 60
-            end = (tc + 1) * 60
-            tc_route_list_tensor.append((start, end))
+            start = torch.max(torch.zeros(1), (tc - 2) * 3600)
+            end = (tc + 2) * 3600
+            tc_route_list_tensor.append([start, end])
             tc_route_list.append((start.clone().detach(), end.clone().detach()))
         tc_list.append(tc_route_list)
         tc_list_tensor.append(tc_route_list_tensor)
@@ -90,9 +81,6 @@ def compute_tsp_seq_for_route(data, lamb):
         tc_list,
         depot,
     ) = data
-
-    demo_stop_ids = [stop_ids[j] for j in label]
-    demo_stop_ids.append(demo_stop_ids[0])
 
     ###########
     try:
@@ -113,6 +101,9 @@ def compute_tsp_seq_for_route(data, lamb):
             depot=depot,
             lamb=int(lamb),
         )
+
+    demo_stop_ids = [stop_ids[j] for j in label]
+    demo_stop_ids.append(demo_stop_ids[0])
 
     pred_stop_ids = [stop_ids[j] for j in pred_seq]
     pred_stop_ids.append(pred_stop_ids[0])
@@ -149,10 +140,10 @@ def irl_loss(batch_output, thetas_tensor, tc_tensor, tsp_data, model):
         )
 
         pred_tv = compute_time_violation_seq(
-            tsp_data[route_idx].travel_times, tc_tensor[route_idx], pred_seq
+            travel_times_tensor, tc_tensor[route_idx], pred_seq
         )
         demo_tv = compute_time_violation_seq(
-            tsp_data[route_idx].travel_times,
+            travel_times_tensor,
             tc_tensor[route_idx],
             tsp_data[route_idx].label,
         )
@@ -171,13 +162,14 @@ def irl_loss(batch_output, thetas_tensor, tc_tensor, tsp_data, model):
 
         if tsp_data[route_idx].route_score == RouteScoreType.High:
             route_loss = HIGH_SCORE_GAIN * F.relu(
-                (demo_cost + lamb * demo_tv) - (pred_cost + lamb * pred_tv)
+                torch.log(demo_cost + lamb * demo_tv)
+                - torch.log(pred_cost + lamb * pred_tv)
             )
-        # elif tsp_data[route_idx].route_score == RouteScoreType.Low:
-        #     route_loss = LOW_SCORE_GAIN * F.relu(
-        #         torch.log(pred_cost + lamb * pred_tv)
-        #         - torch.log(demo_cost + lamb * demo_tv)
-        #     )
+        elif tsp_data[route_idx].route_score == RouteScoreType.Low:
+            route_loss = LOW_SCORE_GAIN * F.relu(
+                torch.log(pred_cost + lamb * pred_tv)
+                - torch.log(demo_cost + lamb * demo_tv)
+            )
 
         loss += route_loss
         all_demo_tv += demo_tv
@@ -232,8 +224,6 @@ def process(models, nn_datas, tsp_data):
         idx_so_far += route_len * route_len
         seq_idx_so_far += route_len
 
-    seq_tensor[0].retain_grad()
-
     tc_list, tc_list_tensor = tc_tensor_to_tuple_list(seq_tensor)
 
     batch_data = []
@@ -278,7 +268,6 @@ def process(models, nn_datas, tsp_data):
         seq_thetas_norm,
         pred_tv,
         demo_tv,
-        seq_tensor[0],
     )
 
 
@@ -306,15 +295,7 @@ def train(
         nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
         optimizer.zero_grad()
 
-        (
-            loss,
-            batch_output,
-            thetas_norm,
-            seq_thetas_norm,
-            pred_tv,
-            demo_tv,
-            seq_ten,
-        ) = process(
+        (loss, batch_output, thetas_norm, seq_thetas_norm, pred_tv, demo_tv,) = process(
             (model, seq_model),
             (nn_data, seq_nn_data),
             tsp_data,
@@ -325,8 +306,6 @@ def train(
         if epoch_idx != 0 or config.train_on_first:
             loss.backward()
             optimizer.step()
-
-        print(seq_ten.grad)
 
         learning_rate = optimizer.param_groups[0]["lr"]
 
@@ -349,7 +328,7 @@ def train(
         print(
             "Epoch: {}, Step: {}, Loss: {:0.2f}, Score: {:0.3f}, Time: {:0.2f} sec,"
             " Lambda: {:0.2f}, LR: {:0.2f}, Theta Norm: {:0.2f}, Seq Thetas Norm: {:0.2f}"
-            "Pred tv: {:0.2f}, Demo tv: {:0.2f}".format(
+            " Pred tv: {:0.2f}, Demo tv: {:0.2f}".format(
                 epoch_idx,
                 d_idx,
                 loss.item(),
@@ -421,7 +400,7 @@ def eval(models, dataloader, writer, config, epoch_idx):
     for d_idx, data in enumerate(dataloader):
         nn_data, tsp_data, scaled_tc_data, seq_nn_data = data
 
-        loss, batch_output, thetas_norm, seq_thetas_norm = process(
+        (loss, batch_output, thetas_norm, seq_thetas_norm, pred_tv, demo_tv,) = process(
             (model, seq_model),
             (nn_data, seq_nn_data),
             tsp_data,
@@ -484,7 +463,8 @@ def main(config):
     model = model.to(device)
     print(model)
 
-    seq_model = TC_Model(num_features=(MAX_ROUTE_LEN * num_features), out_features=1)
+    num_tc_features = 2 + config.data.num_stop_features + config.data.num_route_features
+    seq_model = TC_Model(num_features=num_tc_features, out_features=1)
     seq_model = seq_model.to(device)
     print(seq_model)
 
