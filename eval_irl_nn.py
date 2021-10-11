@@ -15,7 +15,7 @@ from training_utils.arg_utils import get_args, setup_training_output
 device = torch.device("cpu")
 
 
-def eval(model, dataloader, config, epoch_idx, test_pred_paths):
+def eval(model, dataloader, config, epoch_idx):
     model.eval()
 
     eval_loss = []
@@ -29,11 +29,8 @@ def eval(model, dataloader, config, epoch_idx, test_pred_paths):
             model,
             nn_data,
             tsp_data,
-            test_pred_paths[paths_so_far : (paths_so_far + len(tsp_data))],
+            use_replay=False
         )
-
-        for kdx in range(len(batch_output)):
-            test_pred_paths[paths_so_far + kdx] = batch_output[kdx][0]
 
         res = list(zip(*batch_output))
         batch_seq_score = np.array(res[3])
@@ -50,8 +47,6 @@ def eval(model, dataloader, config, epoch_idx, test_pred_paths):
         + "Eval Loss: {}, Eval Score: {}".format(mean_eval_loss, mean_eval_score)
         + ENDC
     )
-
-    return test_pred_paths
 
 
 def main(config):
@@ -81,16 +76,11 @@ def main(config):
         model.load_state_dict(chkpt)
         print(OKBLUE + "Loaded Weights from :{}".format(config.save_path) + ENDC)
 
-    test_pred_paths = [None] * int(
-        (1 - config.data.train_split) * config.data.slice_end
-    )
-
-    test_pred_paths = eval(
+    eval(
         model,
         test_loader,
         config,
         0,
-        test_pred_paths,
     )
     print("Finished Training")
 

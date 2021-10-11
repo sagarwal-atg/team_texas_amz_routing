@@ -36,7 +36,7 @@ HIGH_SCORE_GAIN = 1.0
 MEDIUM_SCORE_GAIN = 1.0
 LOW_SCORE_GAIN = 1.0
 
-replay = ReplayBuffer(max_size=10, sample_size=32)
+replay = ReplayBuffer(max_size=1280, sample_size=128)
 
 
 def compute_link_cost_seq(time_matrix, link_features, seq):
@@ -213,6 +213,7 @@ def train(
     scheduler,
     best_loss,
     best_score,
+    train_data
 ):
 
     model.train()
@@ -270,12 +271,14 @@ def train(
                 thetas_norm,
             )
         )
+        train_data.append((loss.item(), mean_score))
 
     if epoch_idx != 0 or config.train_on_first:
         scheduler.step()
 
     mean_train_loss = sum(train_loss) / len(train_loss)
     mean_train_score = sum(train_score) / len(train_score)
+    
 
     loss_print_str = "{}".format(mean_train_loss)
     if best_loss > mean_train_loss:
@@ -311,10 +314,10 @@ def train(
     writer.add_scalar("Train/loss", mean_train_loss, epoch_idx)
     writer.add_scalar("Train/score", mean_train_score, epoch_idx)
 
-    return best_loss, best_score
+    return best_loss, best_score, train_data
 
 
-def eval(model, dataloader, writer, config, epoch_idx):
+def eval(model, dataloader, writer, config, epoch_idx, eval_data):
     model.eval()
 
     eval_loss = []
@@ -338,8 +341,11 @@ def eval(model, dataloader, writer, config, epoch_idx):
         eval_loss.append(loss.item())
         eval_score.append(mean_score)
 
+
     mean_eval_loss = sum(eval_loss) / len(eval_loss)
     mean_eval_score = sum(eval_score) / len(eval_score)
+
+    eval_data.append((mean_eval_loss, mean_eval_score))
 
     print(
         OKGREEN
@@ -348,6 +354,8 @@ def eval(model, dataloader, writer, config, epoch_idx):
     )
     writer.add_scalar("Eval/loss", mean_eval_loss, epoch_idx)
     writer.add_scalar("Eval/score", mean_eval_score, epoch_idx)
+
+    return eval_data
 
 
 def main(config):
@@ -403,8 +411,11 @@ def main(config):
     best_loss = 1e10
     best_score = 1e10
 
+    train_data = []
+    eval_data = []
+
     for epoch_idx in range(config.num_train_epochs):
-        best_loss, best_score = train(
+        best_loss, best_score, train_data = train(
             model,
             train_loader,
             writer,
@@ -414,9 +425,13 @@ def main(config):
             scheduler,
             best_loss,
             best_score,
+            train_data
         )
         if not epoch_idx % config.eval_iter:
-            eval(model, test_loader, writer, config, epoch_idx)
+            eval_data = eval(model, test_loader, writer, config, epoch_idx, eval_data)
+
+    np.savez("nn_train_test_data", train_data)
+
     print("Finished Training")
 
 

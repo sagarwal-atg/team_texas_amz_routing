@@ -37,8 +37,8 @@ def compute_time_violation_seq(time_matrix, time_constraints, seq):
     violation_down, violation_up = 0, 0
     for idx in range(1, len(seq)):
         time += time_matrix[seq[idx - 1], seq[idx]]
-        violation_up += max(0, time - time_constraints[idx][1])
-        violation_down += max(0, time_constraints[idx][0] - time)
+        violation_up += max(0, time - time_constraints[seq[idx]][1])
+        violation_down += max(0, time_constraints[seq[idx]][0] - time)
     return violation_up + violation_down
 
 
@@ -123,6 +123,8 @@ def fit(model, dataloader, writer, config):
     lamb = 10.0
     lr = config.learning_rate
     clock = 0
+    
+    train_data = []
 
     # loop over the dataset multiple times
     for epoch_idx in range(config.num_train_epochs):
@@ -159,11 +161,13 @@ def fit(model, dataloader, writer, config):
                     batch_pred_feature_cost.T
                 )
 
-                loss = max(
-                    (np.mean(demo_cost) + lamb * np.mean(batch_demo_tv))
-                    - (np.mean(pred_cost) + lamb * np.mean(batch_pred_tv)),
-                    0,
-                )
+                # loss = max(
+                #     (np.mean(demo_cost) + lamb * np.mean(batch_demo_tv))
+                #     - (np.mean(pred_cost) + lamb * np.mean(batch_pred_tv)),
+                #     0,
+                # )
+                loss =  max(np.log(np.mean(demo_cost) + lamb * np.mean(batch_demo_tv)) -
+                            np.log(np.mean(pred_cost) + lamb * np.mean(batch_pred_tv)), 0.0)
 
                 # update theta and lambda
                 # r = lr / (1 + clock * 0.0005)
@@ -204,6 +208,7 @@ def fit(model, dataloader, writer, config):
                         lamb,
                     )
                 )
+                train_data.append((loss, mean_score))
 
         mean_epoch_loss = (epoch_loss * config.batch_size) / (len(dataloader))
         mean_epoch_score = (epoch_score * config.batch_size) / (len(dataloader))
@@ -214,6 +219,8 @@ def fit(model, dataloader, writer, config):
 
         writer.add_scalar("Train/loss", mean_epoch_loss, epoch_idx)
         writer.add_scalar("Train/score", mean_epoch_score, epoch_idx)
+
+        np.savez("linear_lp_train_test_data", train_data)
 
 
 def main(config):

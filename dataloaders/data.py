@@ -7,6 +7,8 @@ import numpy as np
 from haversine import Unit, haversine
 from munch import Munch  # used to give dot accessing to dict
 
+SCORE = SimpleNamespace(LOW='Low', MEDIUM='Medium', HIGH='High')
+
 
 class RouteDatum:
     def __init__(self, data):

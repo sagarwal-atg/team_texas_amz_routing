@@ -20,6 +20,7 @@ from .data import (
     SequenceData,
     TravelTimeData,
     TravelTimeDatum,
+    SCORE
 )
 from .utils import ENDC, OKGREEN, RouteScoreType, TrainTest
 
@@ -378,11 +379,11 @@ class IRLNNDataset(Dataset):
 
             def get_route_features(route_id):
                 veh_cap = route_data[route_id]._data.executor_capacity_cm3
-                station_code = station_code_dict[
-                    route_data[route_id].get_station_code()
-                ]
+                # station_code = station_code_dict[
+                #     route_data[route_id].get_station_code()
+                # ]
 
-                return np.array([veh_cap, station_code])
+                return np.array([veh_cap])
 
             def get_link_features(route_id):
                 """
