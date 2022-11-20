@@ -19,9 +19,9 @@ data:
     package_data_filename: 'package_data.json'
 
     train_split: 0.0  
-    use_cache: true
-    slice_begin: 2000
-    slice_end: 2500
+    use_cache: false
+    slice_begin: 0
+    slice_end: 10
     num_link_features: 10
     num_route_features: 2
     route_score: ['High']
@@ -29,4 +29,4 @@ data:
 
 batch_size: 32
 
-save_path: '../trained_models/2k_routes_normal_loss/best_score_2k_routes_normal_loss.pt'
+save_path: '../trained_models/package_features/best_model_package_features.pt'
